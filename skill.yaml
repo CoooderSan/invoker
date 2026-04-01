@@ -1,0 +1,81 @@
+name: invoker
+version: 0.1.0
+description: >
+  Host-aware AI skill dependency manager. Scans skill manifests, diagnoses
+  missing CLI tools / tokens / env vars / resources / dependent skills, and
+  outputs machine-readable JSON status for AI orchestration layers to consume.
+entrypoint: ./dist/bin/invoker.js
+
+requires:
+  cli:
+    - name: node
+      command: node
+      versionCommand: node --version
+      versionPattern: 'v(\d+\.\d+\.\d+)'
+      minVersion: '18.0.0'
+      installHint: Install Node.js >= 18 from https://nodejs.org
+
+intents:
+  - name: doctor
+    description: >
+      Check whether a skill's runtime dependencies are satisfied on the current
+      host. Returns a structured JSON report with per-check status, category
+      (cli/token/env/resource/skill), severity (blocking/non_blocking), and
+      remediation hints.
+    parameters:
+      skill: path or registered name of the skill to check
+      host: optional host runtime override (claude, codex, invoker)
+      json: set to true to get machine-readable output
+
+  - name: scan
+    description: >
+      Parse a skill's manifest and sidecar files, merge requirements, and return
+      the normalized dependency view without executing any checks.
+    parameters:
+      skill: path or registered name of the skill to scan
+      json: set to true to get machine-readable output
+
+  - name: list
+    description: >
+      List all skills registered in the local registry. Optionally refresh their
+      status by running a doctor check on each.
+    parameters:
+      refresh: run doctor on every skill to get fresh status
+      json: set to true to get machine-readable output
+
+  - name: info
+    description: >
+      Return full skill metadata (manifest, effective requirements, registry
+      entry) combined with a fresh doctor report in a single call.
+    parameters:
+      skill: path or registered name of the skill
+      json: set to true to get machine-readable output
+
+  - name: install
+    description: >
+      Build or execute an install plan for a skill's missing dependencies.
+      Use dry-run to preview steps without executing.
+    parameters:
+      skill: path or registered name of the skill
+      dry_run: preview steps without executing
+
+  - name: fix
+    description: >
+      Automatically fix explicitly fixable issues (CLI tools with installCommand,
+      resources with a template). Does not touch tokens or global env variables.
+    parameters:
+      skill: path or registered name of the skill
+
+  - name: register
+    description: Register a skill directory into the local invoker registry.
+    parameters:
+      skill: path to the skill directory
+
+  - name: hosts
+    description: >
+      Manage persisted host root paths. list shows effective roots; set/unset
+      configure overrides stored in ~/.invoker/config.json.
+    parameters:
+      action: list | set | unset
+      host: target runtime (claude, codex, invoker)
+      path: root directory path (required for set)

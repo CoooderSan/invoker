@@ -1,0 +1,25 @@
+schemaVersion: "0.1"
+notes:
+  - "This sidecar supplements skills whose original schema is missing runtime requirements."
+
+requires:
+  cli:
+    - name: jq
+      command: jq
+      versionCommand: "jq --version"
+      versionPattern: "jq-(\\d+\\.\\d+\\.\\d+)"
+      installHint: "Install via Homebrew: brew install jq"
+      installCommand: "brew install jq"
+
+  resources:
+    - name: review-template
+      path: ./templates/review.md
+      description: "PR review template"
+      template: |
+        # PR Review: {{title}}
+
+        ## Summary
+
+        ## Findings
+
+        ## Recommendation

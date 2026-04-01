@@ -1,0 +1,42 @@
+name: codeup-pr-review
+description: Review Codeup pull requests from the reviewer perspective
+version: 1.0.0
+
+entrypoint: ./review.sh
+
+requires:
+  cli:
+    - name: git
+      command: git
+      versionCommand: "git --version"
+      minVersion: "2.30.0"
+      installHint: "Install via Homebrew: brew install git"
+      installCommand: "brew install git"
+
+    - name: curl
+      command: curl
+      installHint: "Usually pre-installed on macOS/Linux"
+
+  tokens:
+    - name: Codeup Token
+      envVar: CODEUP_TOKEN
+      description: "Personal access token for Codeup API"
+      required: true
+
+  env:
+    - name: Codeup API URL
+      envVar: CODEUP_API_URL
+      description: "Base URL for Codeup API"
+      required: true
+
+intents:
+  - name: review
+    description: Review a pull request
+    parameters:
+      prUrl: string
+      depth: string
+
+  - name: summarize
+    description: Summarize PR changes
+    parameters:
+      prUrl: string

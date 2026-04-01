@@ -1,16 +1,34 @@
 {
-  "name": "invoker",
+  "name": "@cooodersan/invoker",
   "version": "0.1.0",
   "description": "AI Skill Package Manager — manage dependencies, environment, and availability of AI Skills",
   "type": "module",
   "bin": {
     "invoker": "./dist/bin/invoker.js"
   },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "skill.yaml",
+    "skills/invoker-setup"
+  ],
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
     "start": "node dist/bin/invoker.js",
     "test": "npm run build && node --test dist/test/*.test.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/CoooderSan/invoker.git"
+  },
+  "homepage": "https://github.com/CoooderSan/invoker#readme",
+  "bugs": {
+    "url": "https://github.com/CoooderSan/invoker/issues"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "dependencies": {
     "commander": "^12.1.0",

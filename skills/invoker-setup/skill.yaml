@@ -13,8 +13,8 @@ requires:
     - name: invoker
       command: invoker
       versionCommand: invoker --version
-      installHint: "Run: npm install -g @anthropic/invoker  or  npx invoker"
-      installCommand: "npm install -g @anthropic/invoker"
+      installHint: "Run: npm install -g @cooodersan/invoker  or  npx @cooodersan/invoker"
+      installCommand: "npm install -g @cooodersan/invoker"
 
 intents:
   - name: setup

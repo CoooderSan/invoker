@@ -22,8 +22,14 @@ node dist/bin/invoker.js info ./examples/codeup-pr-review
 ## 全局安装
 
 ```bash
-npm link
+npm install -g @cooodersan/invoker
 invoker scan ./examples/codeup-pr-review
+```
+
+## 临时执行
+
+```bash
+npx @cooodersan/invoker scan ./examples/codeup-pr-review
 ```
 
 ## 核心定位

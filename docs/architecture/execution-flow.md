@@ -3,7 +3,8 @@
 Invoker 继续沿用现有主链路：
 
 1. `scan`
-   - 读取 `skill.yaml`
+   - 优先读取 `SKILL.md` frontmatter
+   - 在没有 `SKILL.md` 时兼容读取 `skill.yaml` / `skill.yml`
    - 查找可选的 `invoker.skill.yaml`
    - 合并得到 `effectiveRequires`
    - 识别当前 skill 所属 host

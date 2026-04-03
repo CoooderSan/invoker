@@ -10,7 +10,7 @@
 
 推荐：`invoker.skill.yaml`
 
-同目录放在 `skill.yaml` 旁边。
+同目录放在 `SKILL.md` 或 `skill.yaml` 旁边。
 
 ## 典型示例
 
@@ -45,4 +45,4 @@ sidecar 只负责补充运行信息，不应该覆盖这些主体字段：
 - `entrypoint`
 - `intents`
 
-这些字段仍以 `skill.yaml` 为准。
+这些字段仍以主文档（优先 `SKILL.md`，回退 `skill.yaml`）为准。

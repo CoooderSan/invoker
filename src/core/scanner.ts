@@ -1,5 +1,5 @@
 import { parse as parseYaml } from 'yaml';
-import { resolve, dirname, relative } from 'node:path';
+import { resolve, dirname, relative, basename } from 'node:path';
 import { readTextFile, fileExists } from '../utils/fs.js';
 import { logger } from '../utils/logger.js';
 import { getDefaultHostRoots, getEffectiveHostRoot, getConfiguredHostRoots } from './host-config.js';
@@ -10,6 +10,8 @@ import type {
   EnvRequirement,
   ResourceRequirement,
   SkillDependencyRequirement,
+  SettingRequirement,
+  HostConfigRequirement,
   InvokerSidecar,
   SkillRequirements,
   NormalizedSkill,
@@ -18,10 +20,25 @@ import type {
   RuntimeTarget,
   ResolvedSkillLocation,
   ScanOptions,
+  TrustConfig,
+  TrustCheckerConfig,
+  ScanWarning,
+  SkillDocumentFormat,
 } from '../types.js';
 
+const PRIMARY_DOC_NAMES = ['SKILL.md'];
 const MANIFEST_NAMES = ['skill.yaml', 'skill.yml'];
 const SIDECAR_NAMES = ['invoker.skill.yaml', 'invoker.skill.yml'];
+
+interface ParsedPrimaryDocument {
+  manifest: SkillManifest;
+  sidecar?: InvokerSidecar;
+}
+
+interface PrimaryDocumentLocation {
+  path: string;
+  format: SkillDocumentFormat;
+}
 
 export function getHomeDir(): string {
   return process.env.HOME || process.env.USERPROFILE || '';
@@ -57,7 +74,38 @@ async function inferTargetFromPath(skillDir: string): Promise<{ target: RuntimeT
   return { target: 'unknown', targetRoot: undefined };
 }
 
+function inferDocumentFormat(path: string): SkillDocumentFormat {
+  return basename(path) === 'SKILL.md' ? 'markdown' : 'yaml';
+}
+
+function isDirectSkillDocumentPath(skillPathOrName: string): boolean {
+  return basename(skillPathOrName) === 'SKILL.md' || skillPathOrName.endsWith('.yaml') || skillPathOrName.endsWith('.yml');
+}
+
+export async function findPrimaryDocInDirectory(skillDir: string): Promise<PrimaryDocumentLocation | null> {
+  for (const name of PRIMARY_DOC_NAMES) {
+    const candidate = resolve(skillDir, name);
+    if (await fileExists(candidate)) {
+      return { path: candidate, format: 'markdown' };
+    }
+  }
+
+  for (const name of MANIFEST_NAMES) {
+    const candidate = resolve(skillDir, name);
+    if (await fileExists(candidate)) {
+      return { path: candidate, format: 'yaml' };
+    }
+  }
+
+  return null;
+}
+
 async function findManifestInDirectory(skillDir: string): Promise<string | null> {
+  const primary = await findPrimaryDocInDirectory(skillDir);
+  return primary?.path ?? null;
+}
+
+async function findLegacyManifest(skillDir: string): Promise<string | null> {
   for (const name of MANIFEST_NAMES) {
     const candidate = resolve(skillDir, name);
     if (await fileExists(candidate)) return candidate;
@@ -66,13 +114,16 @@ async function findManifestInDirectory(skillDir: string): Promise<string | null>
 }
 
 export async function resolveSkillLocation(skillPathOrName: string, options: ScanOptions = {}): Promise<ResolvedSkillLocation | null> {
-  if (skillPathOrName.endsWith('.yaml') || skillPathOrName.endsWith('.yml')) {
+  if (isDirectSkillDocumentPath(skillPathOrName)) {
     const abs = resolve(skillPathOrName);
     if (!(await fileExists(abs))) return null;
     const skillDir = dirname(abs);
     const inferred = await inferTargetFromPath(skillDir);
+    const format = inferDocumentFormat(abs);
     return {
       manifestPath: abs,
+      primaryDocPath: abs,
+      primaryDocFormat: format,
       skillDir,
       source: 'direct_path',
       target: options.target ?? inferred.target,
@@ -81,11 +132,13 @@ export async function resolveSkillLocation(skillPathOrName: string, options: Sca
   }
 
   const directDir = resolve(skillPathOrName);
-  const directManifest = await findManifestInDirectory(directDir);
-  if (directManifest) {
+  const directPrimary = await findPrimaryDocInDirectory(directDir);
+  if (directPrimary) {
     const inferred = await inferTargetFromPath(directDir);
     return {
-      manifestPath: directManifest,
+      manifestPath: directPrimary.path,
+      primaryDocPath: directPrimary.path,
+      primaryDocFormat: directPrimary.format,
       skillDir: directDir,
       source: 'direct_path',
       target: options.target ?? inferred.target,
@@ -94,11 +147,13 @@ export async function resolveSkillLocation(skillPathOrName: string, options: Sca
   }
 
   const cwdDir = resolve(process.cwd(), skillPathOrName);
-  const cwdManifest = await findManifestInDirectory(cwdDir);
-  if (cwdManifest) {
+  const cwdPrimary = await findPrimaryDocInDirectory(cwdDir);
+  if (cwdPrimary) {
     const inferred = await inferTargetFromPath(cwdDir);
     return {
-      manifestPath: cwdManifest,
+      manifestPath: cwdPrimary.path,
+      primaryDocPath: cwdPrimary.path,
+      primaryDocFormat: cwdPrimary.format,
       skillDir: cwdDir,
       source: 'cwd',
       target: options.target ?? inferred.target,
@@ -110,11 +165,13 @@ export async function resolveSkillLocation(skillPathOrName: string, options: Sca
   for (const target of targets) {
     const root = await getTargetRoot(target, options.targetRoot);
     if (!root) continue;
-    const manifestPath = await findManifestInDirectory(resolve(root, skillPathOrName));
-    if (manifestPath) {
+    const primary = await findPrimaryDocInDirectory(resolve(root, skillPathOrName));
+    if (primary) {
       return {
-        manifestPath,
-        skillDir: dirname(manifestPath),
+        manifestPath: primary.path,
+        primaryDocPath: primary.path,
+        primaryDocFormat: primary.format,
+        skillDir: dirname(primary.path),
         source: 'target_dir',
         target,
         targetRoot: root,
@@ -126,7 +183,7 @@ export async function resolveSkillLocation(skillPathOrName: string, options: Sca
 }
 
 /**
- * Locate skill.yaml in a directory or by skill name in a registry path.
+ * Locate the primary skill document in a directory or by skill name in a registry path.
  */
 export async function findManifest(skillPathOrName: string, options: ScanOptions = {}): Promise<string | null> {
   const resolved = await resolveSkillLocation(skillPathOrName, options);
@@ -143,21 +200,11 @@ export async function findSidecar(skillDir: string): Promise<string | null> {
 }
 
 /**
- * Parse a skill.yaml file into a SkillManifest.
+ * Parse the primary skill document into a SkillManifest.
  */
 export async function parseManifest(manifestPath: string): Promise<SkillManifest> {
-  const doc = await parseYamlDocument(manifestPath, 'skill.yaml');
-
-  const manifest: SkillManifest = {
-    name: doc.name ?? 'unknown',
-    description: doc.description ?? '',
-    version: doc.version ?? '0.0.0',
-    entrypoint: doc.entrypoint,
-    requires: normalizeRequirements(doc.requires, 'manifest'),
-    intents: doc.intents,
-  };
-
-  return manifest;
+  const parsed = await parsePrimaryDocument(manifestPath, inferDocumentFormat(manifestPath));
+  return parsed.manifest;
 }
 
 export async function parseSidecar(sidecarPath: string): Promise<InvokerSidecar> {
@@ -166,7 +213,47 @@ export async function parseSidecar(sidecarPath: string): Promise<InvokerSidecar>
   return {
     schemaVersion: doc.schemaVersion ?? doc.schema_version,
     requires: normalizeRequirements(doc.requires, 'sidecar'),
+    trust: normalizeTrust(doc.trust),
     notes: normalizeNotes(doc.notes),
+  };
+}
+
+async function parsePrimaryDocument(path: string, format: SkillDocumentFormat): Promise<ParsedPrimaryDocument> {
+  if (format === 'markdown') {
+    return parseMarkdownSkillDocument(path);
+  }
+
+  const doc = await parseYamlDocument(path, 'skill.yaml');
+  return {
+    manifest: normalizeManifestDocument(doc),
+  };
+}
+
+async function parseMarkdownSkillDocument(path: string): Promise<ParsedPrimaryDocument> {
+  const doc = await parseFrontmatterDocument(path);
+  const legacyManifestPath = await findLegacyManifest(dirname(path));
+  const legacyManifest = legacyManifestPath ? await parseManifest(legacyManifestPath) : undefined;
+  const manifest = normalizeManifestDocument(doc);
+  const trust = normalizeTrust(doc.trust);
+  const notes = normalizeNotes(doc.notes);
+
+  return {
+    manifest: {
+      ...manifest,
+      requires: mergeMarkdownCompatibilityRequirements(manifest.requires, legacyManifest?.requires),
+    },
+    sidecar: trust || notes ? { trust, notes } : undefined,
+  };
+}
+
+function normalizeManifestDocument(doc: Record<string, any>): SkillManifest {
+  return {
+    name: doc.name ?? 'unknown',
+    description: doc.description ?? '',
+    version: doc.version ?? '0.0.0',
+    entrypoint: doc.entrypoint,
+    requires: normalizeRequirements(doc.requires, 'manifest'),
+    intents: doc.intents,
   };
 }
 
@@ -181,11 +268,54 @@ async function parseYamlDocument(path: string, label: string): Promise<Record<st
   return doc as Record<string, any>;
 }
 
+async function parseFrontmatterDocument(path: string): Promise<Record<string, any>> {
+  const raw = (await readTextFile(path)).replace(/^\uFEFF/, '');
+  const match = raw.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
+
+  if (!match) {
+    throw new Error(`Invalid SKILL.md at ${path}: missing YAML frontmatter`);
+  }
+
+  const doc = parseYaml(match[1]);
+  if (!doc || typeof doc !== 'object') {
+    throw new Error(`Invalid SKILL.md at ${path}: frontmatter is empty or not an object`);
+  }
+
+  return doc as Record<string, any>;
+}
+
 function normalizeNotes(raw: unknown): string[] | undefined {
   if (!raw) return undefined;
   if (Array.isArray(raw)) return raw.map(String);
   if (typeof raw === 'string') return [raw];
   return undefined;
+}
+
+function normalizeTrust(raw: unknown): TrustConfig | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const trust = raw as Record<string, unknown>;
+  const checkers = normalizeTrustCheckers(trust.checkers);
+  if (!checkers?.length) return undefined;
+  return { checkers };
+}
+
+function normalizeTrustCheckers(raw: unknown): TrustCheckerConfig[] | undefined {
+  if (!raw || !Array.isArray(raw)) return undefined;
+
+  return raw.map((item) => {
+    if (typeof item === 'string') {
+      return { name: item, skill: item, required: false } as TrustCheckerConfig;
+    }
+
+    return {
+      name: item.name,
+      skill: item.skill ?? item.name,
+      target: item.target,
+      args: Array.isArray(item.args) ? item.args.map(String) : undefined,
+      required: item.required ?? false,
+      timeoutMs: item.timeoutMs ?? item.timeout_ms,
+    } as TrustCheckerConfig;
+  });
 }
 
 /**
@@ -203,6 +333,8 @@ function normalizeRequirements(raw: unknown, source: RequirementSource): SkillRe
     env: normalizeEnv(r.env, source),
     resources: normalizeResources(r.resources, source),
     skills: normalizeSkills(r.skills, source),
+    settings: normalizeSettings(r.settings, source),
+    hostConfig: normalizeHostConfig(r.hostConfig ?? r.host_config, source),
     permissions: Array.isArray(r.permissions) ? Array.from(new Set(r.permissions.map(String))) : undefined,
   });
 }
@@ -303,6 +435,44 @@ function normalizeSkills(raw: unknown, source: RequirementSource): SkillDependen
   });
 }
 
+function normalizeSettings(raw: unknown, source: RequirementSource): SettingRequirement[] | undefined {
+  if (!raw || !Array.isArray(raw)) return undefined;
+
+  return raw.map((item) => {
+    if (typeof item === 'string') {
+      return { key: item, required: true, source } as SettingRequirement;
+    }
+
+    return {
+      key: item.key,
+      host: item.host,
+      description: item.description,
+      required: item.required ?? true,
+      expectedValue: item.expectedValue ?? item.expected_value,
+      source,
+    } as SettingRequirement;
+  });
+}
+
+function normalizeHostConfig(raw: unknown, source: RequirementSource): HostConfigRequirement[] | undefined {
+  if (!raw || !Array.isArray(raw)) return undefined;
+
+  return raw.map((item) => {
+    if (typeof item === 'string') {
+      return { name: item, kind: 'root_exists', required: true, source } as HostConfigRequirement;
+    }
+
+    return {
+      name: item.name ?? item.kind ?? 'host-config',
+      host: item.host,
+      kind: item.kind ?? 'root_exists',
+      description: item.description,
+      required: item.required ?? true,
+      source,
+    } as HostConfigRequirement;
+  });
+}
+
 function cleanRequirements(requirements: SkillRequirements): SkillRequirements | undefined {
   const cleaned: SkillRequirements = {
     cli: requirements.cli?.length ? requirements.cli : undefined,
@@ -310,6 +480,8 @@ function cleanRequirements(requirements: SkillRequirements): SkillRequirements |
     env: requirements.env?.length ? requirements.env : undefined,
     resources: requirements.resources?.length ? requirements.resources : undefined,
     skills: requirements.skills?.length ? requirements.skills : undefined,
+    settings: requirements.settings?.length ? requirements.settings : undefined,
+    hostConfig: requirements.hostConfig?.length ? requirements.hostConfig : undefined,
     permissions: requirements.permissions?.length ? requirements.permissions : undefined,
   };
 
@@ -327,6 +499,8 @@ function mergeRequirements(manifest?: SkillRequirements, sidecar?: SkillRequirem
     env: mergeRequirementList(manifest.env, sidecar.env, (item) => item.envVar),
     resources: mergeRequirementList(manifest.resources, sidecar.resources, (item) => item.path ?? item.name),
     skills: mergeRequirementList(manifest.skills, sidecar.skills, (item) => item.path ?? item.name),
+    settings: mergeRequirementList(manifest.settings, sidecar.settings, (item) => `${item.host ?? 'any'}:${item.key}`),
+    hostConfig: mergeRequirementList(manifest.hostConfig, sidecar.hostConfig, (item) => `${item.host ?? 'any'}:${item.kind}:${item.name}`),
     permissions: mergePermissions(manifest.permissions, sidecar.permissions),
   });
 }
@@ -357,6 +531,13 @@ function mergeRequirementList<T extends RequirementMetadata>(
   return Array.from(merged.values());
 }
 
+function mergeMarkdownCompatibilityRequirements(
+  primary?: SkillRequirements,
+  legacy?: SkillRequirements,
+): SkillRequirements | undefined {
+  return primary;
+}
+
 function mergePermissions(manifest: string[] | undefined, sidecar: string[] | undefined): string[] | undefined {
   if (!manifest?.length && !sidecar?.length) return undefined;
   return Array.from(new Set([...(manifest ?? []), ...(sidecar ?? [])]));
@@ -369,34 +550,85 @@ export function hasRequirements(requires?: SkillRequirements): boolean {
       requires?.env?.length ||
       requires?.resources?.length ||
       requires?.skills?.length ||
+      requires?.settings?.length ||
+      requires?.hostConfig?.length ||
       requires?.permissions?.length,
   );
 }
 
+function mergeNotes(primaryNotes: string[] | undefined, sidecarNotes: string[] | undefined): string[] | undefined {
+  if (!primaryNotes?.length && !sidecarNotes?.length) return undefined;
+  return Array.from(new Set([...(primaryNotes ?? []), ...(sidecarNotes ?? [])]));
+}
+
+function mergeSidecars(primarySidecar: InvokerSidecar | undefined, yamlSidecar: InvokerSidecar | undefined): InvokerSidecar | undefined {
+  if (!primarySidecar && !yamlSidecar) return undefined;
+
+  return {
+    schemaVersion: yamlSidecar?.schemaVersion,
+    requires: yamlSidecar?.requires,
+    trust: primarySidecar?.trust ?? yamlSidecar?.trust,
+    notes: mergeNotes(primarySidecar?.notes, yamlSidecar?.notes),
+  };
+}
+
+function buildScanWarnings(
+  primaryDocPath: string,
+  primaryDocFormat: SkillDocumentFormat,
+  legacyManifestPath: string | null,
+  sidecarPath: string | null,
+): ScanWarning[] {
+  const warnings: ScanWarning[] = [];
+
+  if (primaryDocFormat === 'yaml') {
+    warnings.push({
+      code: 'legacy_yaml',
+      message: 'Using legacy YAML skill document. Prefer SKILL.md frontmatter as the primary skill document.',
+      paths: [primaryDocPath, ...(sidecarPath ? [sidecarPath] : [])],
+    });
+  }
+
+  if (primaryDocFormat === 'markdown' && legacyManifestPath) {
+    warnings.push({
+      code: 'duplicate_primary_doc',
+      message: 'SKILL.md takes precedence over legacy skill.yaml/skill.yml files; legacy YAML is ignored except for compatibility review.',
+      paths: [primaryDocPath, legacyManifestPath],
+    });
+  }
+
+  return warnings;
+}
+
 /**
- * High-level scan: find manifest, parse sidecar, merge requirements, and return a normalized skill view.
+ * High-level scan: find the primary skill document, parse metadata, and return a normalized skill view.
  */
 export async function scan(skillPathOrName: string, options: ScanOptions = {}): Promise<NormalizedSkill> {
   const location = await resolveSkillLocation(skillPathOrName, options);
   if (!location) {
     throw new Error(
-      `Cannot find skill.yaml for "${skillPathOrName}". Searched in current directory, explicit path, and configured runtime targets.`,
+      `Cannot find skill document (SKILL.md, skill.yaml, or skill.yml) for "${skillPathOrName}". Searched in current directory, explicit path, and configured runtime targets.`,
     );
   }
 
-  logger.debug(`Found manifest at ${location.manifestPath}`);
-  const manifest = await parseManifest(location.manifestPath);
+  logger.debug(`Found primary skill document at ${location.primaryDocPath}`);
+  const parsedPrimary = await parsePrimaryDocument(location.primaryDocPath, location.primaryDocFormat);
   const dir = location.skillDir;
+  const legacyManifestPath = location.primaryDocFormat === 'markdown' ? await findLegacyManifest(dir) : null;
   const sidecarPath = await findSidecar(dir);
-  const sidecar = sidecarPath ? await parseSidecar(sidecarPath) : undefined;
-  const effectiveRequires = mergeRequirements(manifest.requires, sidecar?.requires);
+  const yamlSidecar = sidecarPath ? await parseSidecar(sidecarPath) : undefined;
+  const sidecar = mergeSidecars(parsedPrimary.sidecar, yamlSidecar);
+  const effectiveRequires = mergeRequirements(parsedPrimary.manifest.requires, yamlSidecar?.requires);
 
   return {
-    manifest,
+    manifest: parsedPrimary.manifest,
     sidecar,
     effectiveRequires,
+    trust: sidecar?.trust,
     manifestPath: location.manifestPath,
     sidecarPath: sidecarPath ?? undefined,
+    primaryDocPath: location.primaryDocPath,
+    primaryDocFormat: location.primaryDocFormat,
+    warnings: buildScanWarnings(location.primaryDocPath, location.primaryDocFormat, legacyManifestPath, sidecarPath),
     dir,
     target: location.target,
     targetRoot: location.targetRoot,

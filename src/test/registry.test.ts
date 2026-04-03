@@ -41,6 +41,52 @@ test('listSkills refresh stores last status summary and paths', async () => {
     assert.ok(skills[0].sidecarPath?.endsWith('invoker.skill.yaml'));
     assert.ok(typeof skills[0].lastStatusSummary === 'string');
     assert.ok(skills[0].lastDoctorAt);
+    assert.equal(skills[0].readinessStatus, 'error');
+    assert.equal(skills[0].trustStatus, 'unknown');
+    assert.equal(skills[0].overallStatus, 'error');
+    assert.equal(skills[0].blockingCount, 1);
+  });
+});
+
+test('listSkills refresh stores trust status from trust checker', async () => {
+  await withTempDir(async (dir) => {
+    const checkerDir = join(dir, '.invoker', 'skills', 'skills-check');
+    const skillsRoot = join(dir, '.invoker', 'skills', 'sample-skill');
+    await mkdir(checkerDir, { recursive: true });
+    await mkdir(skillsRoot, { recursive: true });
+
+    await writeFile(
+      join(checkerDir, 'skill.yaml'),
+      `name: skills-check\ndescription: checker\nversion: 1.0.0\nentrypoint: ./check.js\n`,
+      'utf8',
+    );
+    await writeFile(
+      join(checkerDir, 'check.js'),
+      `console.log(JSON.stringify({ findings: [{ name: 'unsafe-pattern', status: 'error', message: 'Unsafe pattern detected' }] }));\n`,
+      'utf8',
+    );
+
+    await writeFile(
+      join(skillsRoot, 'skill.yaml'),
+      `name: sample-skill\ndescription: sample\nversion: 1.0.0\nentrypoint: ./run.sh\nrequires:\n  env:\n    - name: Base URL\n      envVar: BASE_URL\n      defaultValue: https://example.com\n`,
+      'utf8',
+    );
+    await writeFile(join(skillsRoot, 'run.sh'), '#!/bin/sh\necho ok\n', 'utf8');
+    await writeFile(
+      join(skillsRoot, 'invoker.skill.yaml'),
+      `trust:\n  checkers:\n    - name: skills-check\n      skill: skills-check\n      required: true\n`,
+      'utf8',
+    );
+
+    const registryModule = await import(`../core/registry.js?case=${Date.now()}`);
+    const skills = await registryModule.listSkills(true);
+
+    assert.equal(skills.length, 2);
+    const sample = skills.find((item: { name: string }) => item.name === 'sample-skill');
+    assert.ok(sample);
+    assert.equal(sample!.readinessStatus, 'ok');
+    assert.equal(sample!.trustStatus, 'error');
+    assert.equal(sample!.overallStatus, 'error');
   });
 });
 
@@ -73,6 +119,32 @@ test('registerSkillFromPath adds skill to registry and can be retrieved', async 
     const registry = await registryModule.loadRegistry();
     assert.equal(registry.skills.length, 1);
     assert.equal(registry.skills[0].name, 'my-skill');
+  });
+});
+
+test('registerSkillFromPath stores SKILL.md as manifestPath when using single-file skill', async () => {
+  await withTempDir(async (dir) => {
+    await mkdir(join(dir, '.invoker'), { recursive: true });
+    await mkdir(join(dir, 'single-file-skill'));
+    await writeFile(
+      join(dir, 'single-file-skill', 'SKILL.md'),
+      `---
+name: single-file-skill
+description: single file
+version: 3.0.0
+---
+
+# Single File Skill
+`,
+      'utf8',
+    );
+
+    const registryModule = await import(`../core/registry.js?case=${Date.now()}`);
+    const entry = await registryModule.registerSkillFromPath(join(dir, 'single-file-skill'));
+
+    assert.equal(entry.manifestPath, join(dir, 'single-file-skill', 'SKILL.md'));
+    assert.equal(entry.primaryDocPath, join(dir, 'single-file-skill', 'SKILL.md'));
+    assert.equal(entry.primaryDocFormat, 'markdown');
   });
 });
 
@@ -188,5 +260,31 @@ test('listSkills falls back to configured host root when override is absent', as
     assert.equal(skills[0].name, 'configured-skill');
     assert.equal(skills[0].target, 'claude');
     assert.equal(skills[0].targetRoot, configuredClaudeRoot);
+  });
+});
+
+
+test('registerSkillFromPath stores SKILL.md as manifestPath for single-file skill', async () => {
+  await withTempDir(async (dir) => {
+    await mkdir(join(dir, '.invoker'), { recursive: true });
+    await mkdir(join(dir, 'single-file-skill'));
+    await writeFile(
+      join(dir, 'single-file-skill', 'SKILL.md'),
+      `---
+name: single-file-skill
+description: single
+version: 3.0.0
+---
+
+# Single
+`,
+      'utf8',
+    );
+
+    const registryModule = await import(`../core/registry.js?case=${Date.now()}`);
+    const entry = await registryModule.registerSkillFromPath(join(dir, 'single-file-skill'));
+
+    assert.ok(entry.manifestPath?.endsWith('SKILL.md'));
+    assert.equal(entry.sidecarPath, undefined);
   });
 });

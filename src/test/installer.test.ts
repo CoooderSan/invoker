@@ -1,9 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { createServer } from 'node:http';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { buildInstallPlan, executeInstallPlan } from '../core/installer.js';
+import { buildInstallPlan, install } from '../core/installer.js';
+import { installRemoteSkill } from '../core/remote-source.js';
+import { loadRegistry } from '../core/registry.js';
+
+const execFileAsync = promisify(execFile);
 
 async function withTempDir(run: (dir: string) => Promise<void>) {
   const dir = await mkdtemp(join(tmpdir(), 'invoker-installer-'));
@@ -40,6 +47,7 @@ test('buildInstallPlan generates auto step for cli with installCommand', async (
     assert.equal(step!.mode, 'auto');
     assert.equal(step!.command, 'echo install-fake-tool');
     assert.equal(step!.status, 'pending');
+    assert.equal(step!.action, 'install');
   });
 });
 
@@ -75,10 +83,12 @@ test('buildInstallPlan generates manual steps for token and env', async () => {
     const tokenStep = plan.steps.find((s) => s.type === 'token');
     assert.ok(tokenStep, 'should have a token step');
     assert.equal(tokenStep!.mode, 'manual');
+    assert.equal(tokenStep!.action, 'configure');
 
     const envStep = plan.steps.find((s) => s.type === 'env');
     assert.ok(envStep, 'should have an env step');
     assert.equal(envStep!.mode, 'manual');
+    assert.equal(envStep!.action, 'configure');
   });
 });
 
@@ -97,6 +107,7 @@ test('buildInstallPlan generates auto step for fixable resource', async () => {
     assert.ok(step, 'should have a resource step');
     assert.equal(step!.mode, 'auto');
     assert.equal(step!.action, 'create');
+    assert.match(step!.description, /Materialize resource/);
   });
 });
 
@@ -163,5 +174,113 @@ test('buildInstallPlan generates auto register step for pathless dependent skill
     assert.equal(step!.operation, 'register');
     assert.equal(step!.path, childDir);
     assert.equal(step!.host, 'claude');
+  });
+});
+
+
+test('buildInstallPlan supports single-file SKILL.md requirements', async () => {
+  await withTempDir(async (dir) => {
+    await mkdir(join(dir, 'skill'));
+    await writeFile(
+      join(dir, 'skill', 'SKILL.md'),
+      `---
+name: single-file-cli-skill
+description: cli test
+version: 1.0.0
+requires:
+  cli:
+    - name: fake-nonexistent-tool-xyz
+      command: fake-nonexistent-tool-xyz
+      installCommand: "echo install-fake-tool"
+---
+
+# Single File Skill
+`,
+      'utf8',
+    );
+
+    const plan = await buildInstallPlan(join(dir, 'skill'));
+
+    assert.equal(plan.skillName, 'single-file-cli-skill');
+    const step = plan.steps.find((s) => s.type === 'cli');
+    assert.ok(step);
+    assert.equal(step!.mode, 'auto');
+    assert.equal(step!.command, 'echo install-fake-tool');
+  });
+});
+
+test('installRemoteSkill accepts package containing only SKILL.md', async () => {
+  await withTempDir(async (dir) => {
+    const packageRoot = join(dir, 'pkg');
+    const skillDir = join(packageRoot, 'remote-skill');
+    const archivePath = join(dir, 'remote-skill.tgz');
+    await mkdir(skillDir, { recursive: true });
+    await writeFile(
+      join(skillDir, 'SKILL.md'),
+      `---
+name: remote-skill
+description: remote
+version: 1.2.3
+---
+
+# Remote Skill
+`,
+      'utf8',
+    );
+    await execFileAsync('tar', ['-czf', archivePath, '-C', packageRoot, 'remote-skill']);
+    const archiveBytes = await readFile(archivePath);
+
+    let port = 0;
+    const server = createServer((req, res) => {
+      if (req.url === '/index/remote-skill') {
+        res.setHeader('content-type', 'application/json');
+        res.end(
+          JSON.stringify({
+            name: 'remote-skill',
+            version: '1.2.3',
+            downloadUrl: `http://127.0.0.1:${port}/packages/remote-skill.tgz`,
+          }),
+        );
+        return;
+      }
+      if (req.url === '/packages/remote-skill.tgz') {
+        res.setHeader('content-type', 'application/gzip');
+        res.end(archiveBytes);
+        return;
+      }
+      res.statusCode = 404;
+      res.end('not found');
+    });
+
+    await new Promise<void>((resolvePromise) => server.listen(0, '127.0.0.1', resolvePromise));
+    const address = server.address();
+    assert.ok(address && typeof address !== 'string');
+    port = address.port;
+
+    try {
+      const result = await installRemoteSkill(
+        {
+          skill: 'remote-skill',
+          target: 'claude',
+          targetRoot: join(dir, 'runtime', 'claude', 'skills'),
+          source: 'test-source',
+        },
+        {
+          name: 'test-source',
+          type: 'http_index',
+          indexUrlTemplate: `http://127.0.0.1:${port}/index/{name}`,
+        },
+      );
+
+      assert.equal(result.status, 'installed');
+      const installedDoc = await readFile(join(result.targetDir, 'SKILL.md'), 'utf8');
+      assert.match(installedDoc, /name: remote-skill/);
+      const registry = await loadRegistry();
+      assert.equal(registry.skills.length, 0);
+    } finally {
+      await new Promise<void>((resolvePromise, rejectPromise) =>
+        server.close((error) => (error ? rejectPromise(error) : resolvePromise())),
+      );
+    }
   });
 });

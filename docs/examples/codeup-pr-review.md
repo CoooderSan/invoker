@@ -1,16 +1,16 @@
 # Example: codeup-pr-review
 
-本示例演示 manifest + sidecar 的组合，以及完整的 scan → doctor → fix → register → run 链路，其中 host 是 skill 的实际运行环境，Invoker 只负责 control plane。
+本示例演示主文档 + sidecar 的组合，以及完整的 scan → doctor → fix → register → run 链路，其中 host 是 skill 的实际运行环境，Invoker 只负责 control plane。
 
 ## 文件
 
-- `examples/codeup-pr-review/skill.yaml` — 主体声明（git、curl、token、env、intents）
+- `examples/codeup-pr-review/skill.yaml` — legacy 主文档示例（git、curl、token、env、intents）
 - `examples/codeup-pr-review/invoker.skill.yaml` — sidecar 补充（jq、review-template 资源）
 - `examples/codeup-pr-review/review.sh` — 入口脚本
 
 ## 设计意图
 
-- `skill.yaml` 保留 skill 的主体信息和部分 requires
+- 这里保留 `skill.yaml` 作为 legacy 主文档示例
 - `invoker.skill.yaml` 补充：
   - `jq` CLI 依赖（来源标注为 `sidecar`）
   - `review-template` 资源模板（可被 `fix` 自动生成）

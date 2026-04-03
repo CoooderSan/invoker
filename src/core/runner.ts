@@ -3,12 +3,68 @@ import { run } from '../utils/exec.js';
 import { logger } from '../utils/logger.js';
 import { scan } from './scanner.js';
 import { doctor, formatDoctorSummary } from './doctor.js';
-import type { ScanOptions } from '../types.js';
+import type { NormalizedSkill, ScanOptions } from '../types.js';
 
 export interface RunResult {
   exitCode: number;
   stdout: string;
   stderr: string;
+}
+
+export interface EntrypointCommandSpec {
+  command: string;
+  args: string[];
+  entrypoint: string;
+}
+
+export function resolveEntrypointCommand(normalized: NormalizedSkill, args: string[] = []): EntrypointCommandSpec {
+  const { manifest, dir } = normalized;
+  if (!manifest.entrypoint) {
+    throw new Error(`Skill "${manifest.name}" has no entrypoint defined`);
+  }
+
+  const entrypoint = resolve(dir, manifest.entrypoint);
+  const ext = entrypoint.split('.').pop()?.toLowerCase();
+
+  switch (ext) {
+    case 'js':
+    case 'mjs':
+      return { command: 'node', args: [entrypoint, ...args], entrypoint };
+    case 'ts':
+      return { command: 'npx', args: ['tsx', entrypoint, ...args], entrypoint };
+    case 'py':
+      return { command: 'python3', args: [entrypoint, ...args], entrypoint };
+    case 'sh':
+      return { command: '/bin/sh', args: [entrypoint, ...args], entrypoint };
+    default:
+      return { command: entrypoint, args, entrypoint };
+  }
+}
+
+export async function executeSkillEntrypoint(
+  normalized: NormalizedSkill,
+  args: string[] = [],
+  envOverrides?: Record<string, string>,
+): Promise<RunResult> {
+  const { effectiveRequires, dir } = normalized;
+  const commandSpec = resolveEntrypointCommand(normalized, args);
+
+  const env: Record<string, string> = { ...process.env, ...envOverrides } as Record<string, string>;
+  if (effectiveRequires?.env) {
+    for (const e of effectiveRequires.env) {
+      if (!env[e.envVar] && e.defaultValue) {
+        env[e.envVar] = e.defaultValue;
+      }
+    }
+  }
+
+  const result = await run(commandSpec.command, commandSpec.args, dir, env);
+
+  return {
+    exitCode: result.exitCode,
+    stdout: result.stdout,
+    stderr: result.stderr,
+  };
 }
 
 /**
@@ -22,7 +78,7 @@ export async function runSkill(
   options: ScanOptions = {},
 ): Promise<RunResult> {
   const normalized = await scan(skillPathOrName, options);
-  const { manifest, dir, effectiveRequires, target } = normalized;
+  const { manifest, target } = normalized;
 
   if (!manifest.entrypoint) {
     throw new Error(`Skill "${manifest.name}" has no entrypoint defined`);
@@ -36,8 +92,8 @@ export async function runSkill(
       const hasCliIssue = errors.some((e) => e.category === 'cli');
       const hostSuffix = target !== 'unknown' ? ` --host ${target}` : '';
       const nextStep = hasCliIssue
-        ? `Run \"invoker install --dry-run ${manifest.name}${hostSuffix}\" to preview missing dependencies, then \"invoker install ${manifest.name}${hostSuffix}\" or \"invoker fix ${manifest.name}${hostSuffix}\".`
-        : `Run \"invoker doctor ${manifest.name}${hostSuffix}\" to inspect configuration/authentication gaps, then follow with \"invoker install --dry-run ${manifest.name}${hostSuffix}\" or \"invoker fix ${manifest.name}${hostSuffix}\".`;
+        ? `Run \"invoker doctor ${manifest.name}${hostSuffix}\" to inspect readiness gaps, then resolve the reported blocking issues before running again.`
+        : `Run \"invoker doctor ${manifest.name}${hostSuffix}\" to inspect configuration, host settings, or permissions gaps before running again.`;
 
       throw new Error(
         `Skill "${manifest.name}" is not runnable yet (${formatDoctorSummary(report)}):\n${errorMessages}\n\n${nextStep}`,
@@ -46,56 +102,20 @@ export async function runSkill(
     if (report.overall === 'warning') {
       logger.warn(`Skill "${manifest.name}" has warnings (${formatDoctorSummary(report)}), but proceeding...`);
     }
-  }
-
-  const entrypoint = resolve(dir, manifest.entrypoint);
-  logger.info(`Running "${manifest.name}" (${entrypoint})...`);
-
-  const env: Record<string, string> = { ...process.env } as Record<string, string>;
-
-  if (effectiveRequires?.env) {
-    for (const e of effectiveRequires.env) {
-      if (!env[e.envVar] && e.defaultValue) {
-        env[e.envVar] = e.defaultValue;
-      }
+    if (report.trustStatus === 'warning' || report.trustStatus === 'error') {
+      logger.warn(
+        `Skill "${manifest.name}" has trust ${report.trustStatus} (${report.trustReport?.summary?.total ?? report.trustReport?.findings.length ?? 0} finding(s)), but proceeding...`,
+      );
     }
   }
 
-  const ext = entrypoint.split('.').pop()?.toLowerCase();
-  let command: string;
-  let cmdArgs: string[];
+  const commandSpec = resolveEntrypointCommand(normalized, args);
+  logger.info(`Running "${manifest.name}" (${commandSpec.entrypoint})...`);
 
-  switch (ext) {
-    case 'js':
-    case 'mjs':
-      command = 'node';
-      cmdArgs = [entrypoint, ...args];
-      break;
-    case 'ts':
-      command = 'npx';
-      cmdArgs = ['tsx', entrypoint, ...args];
-      break;
-    case 'py':
-      command = 'python3';
-      cmdArgs = [entrypoint, ...args];
-      break;
-    case 'sh':
-      command = '/bin/sh';
-      cmdArgs = [entrypoint, ...args];
-      break;
-    default:
-      command = entrypoint;
-      cmdArgs = args;
-  }
-
-  const result = await run(command, cmdArgs, dir, env);
+  const result = await executeSkillEntrypoint(normalized, args);
 
   if (result.stdout) console.log(result.stdout);
   if (result.stderr) console.error(result.stderr);
 
-  return {
-    exitCode: result.exitCode,
-    stdout: result.stdout,
-    stderr: result.stderr,
-  };
+  return result;
 }

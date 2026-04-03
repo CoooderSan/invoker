@@ -12,7 +12,7 @@ import { listSkills, getSkillInfo, registerSkillFromPath, unregisterSkill } from
 import { getConfiguredHostRoots, getDefaultHostRoots, setHostRoot, unsetHostRoot } from '../core/host-config.js';
 import { runSkill } from '../core/runner.js';
 import { logger, setJsonMode } from '../utils/logger.js';
-import type { RuntimeTarget, ScanOptions } from '../types.js';
+import type { InstallOptions, RuntimeTarget, ScanOptions } from '../types.js';
 
 const program = new Command();
 
@@ -37,22 +37,25 @@ function addHostOptions(command: Command): Command {
 addHostOptions(
   program
     .command('scan <skill>')
-    .description('Scan skill dependencies from skill.yaml')
+    .description('Scan skill dependencies from the skill document')
     .option('--json', 'Output machine-readable JSON (for AI consumers)')
     .action(async (skill: string, opts: { host?: string; hostRoot?: string; json?: boolean }) => {
       if (opts.json) setJsonMode(true);
       try {
         const normalized = await scan(skill, buildScanOptions(opts));
-        const { manifest, effectiveRequires, dir, manifestPath, sidecarPath, target, targetRoot, resolutionSource } = normalized;
+        const { manifest, effectiveRequires, dir, manifestPath, sidecarPath, primaryDocPath, primaryDocFormat, warnings, target, targetRoot, resolutionSource } = normalized;
 
         if (opts.json) {
-          console.log(JSON.stringify({ manifest, effectiveRequires, dir, manifestPath, sidecarPath, target, targetRoot, resolutionSource }, null, 2));
+          console.log(JSON.stringify({ manifest, effectiveRequires, dir, manifestPath, sidecarPath, primaryDocPath, primaryDocFormat, warnings, target, targetRoot, resolutionSource }, null, 2));
           return;
         }
 
         logger.heading(`Skill: ${manifest.name} v${manifest.version}`);
         logger.info(`Directory: ${dir}`);
         logger.info(`Manifest: ${manifestPath}`);
+        if (primaryDocPath !== manifestPath) {
+          logger.info(`Primary doc: ${primaryDocPath}`);
+        }
         logger.info(`Host: ${target}`);
         if (targetRoot) {
           logger.info(`Host root: ${targetRoot}`);
@@ -61,6 +64,11 @@ addHostOptions(
         logger.info(`Description: ${manifest.description}`);
         if (sidecarPath) {
           logger.info(`Sidecar: ${sidecarPath}`);
+        }
+        if (warnings.length) {
+          for (const warning of warnings) {
+            logger.warn(`${warning.code}: ${warning.message}`);
+          }
         }
 
         if (manifest.entrypoint) {
@@ -127,9 +135,17 @@ addHostOptions(
     .command('install <skill>')
     .description('Install missing dependencies for a skill')
     .option('--dry-run', 'Show install plan without executing')
-    .action(async (skill: string, opts: { dryRun?: boolean; host?: string; hostRoot?: string }) => {
+    .option('--source <name>', 'Remote source name for market install fallback')
+    .option('--version <version>', 'Remote skill version for market install fallback')
+    .option('--force', 'Allow replacing existing local skill directory when installing from remote')
+    .action(async (skill: string, opts: { dryRun?: boolean; host?: string; hostRoot?: string; source?: string; version?: string; force?: boolean }) => {
       try {
-        const scanOptions = buildScanOptions(opts);
+        const scanOptions: InstallOptions = {
+          ...buildScanOptions(opts),
+          source: opts.source,
+          version: opts.version,
+          force: opts.force,
+        };
         if (opts.dryRun) {
           const plan = await buildInstallPlan(skill, scanOptions);
           logger.heading(`Install plan for: ${plan.skillName}`);
@@ -222,13 +238,13 @@ addHostOptions(
     .action(async (skill: string, opts: { host?: string; hostRoot?: string; json?: boolean }) => {
       if (opts.json) setJsonMode(true);
       try {
-        const { manifest, effectiveRequires, dir, manifestPath, sidecarPath, target, targetRoot, registered, registryEntry } =
+        const { manifest, effectiveRequires, dir, manifestPath, sidecarPath, primaryDocPath, primaryDocFormat, warnings, target, targetRoot, registered, registryEntry } =
           await getSkillInfo(skill, buildScanOptions(opts));
 
         const report = await doctor(skill, buildScanOptions(opts));
 
         if (opts.json) {
-          console.log(JSON.stringify({ manifest, effectiveRequires, dir, manifestPath, sidecarPath, target, targetRoot, registered, registryEntry, doctorReport: report }, null, 2));
+          console.log(JSON.stringify({ manifest, effectiveRequires, dir, manifestPath, sidecarPath, primaryDocPath, primaryDocFormat, warnings, target, targetRoot, registered, registryEntry, doctorReport: report }, null, 2));
           return;
         }
 
@@ -239,6 +255,9 @@ addHostOptions(
         console.log(`  Host:        ${target}`);
         console.log(`  Host root:   ${targetRoot ?? chalk.gray('none')}`);
         console.log(`  Manifest:    ${manifestPath}`);
+        if (primaryDocPath !== manifestPath) {
+          console.log(`  Primary doc: ${primaryDocPath}`);
+        }
         console.log(`  Sidecar:     ${sidecarPath ?? chalk.gray('none')}`);
         console.log(`  Registered:  ${registered ? chalk.green('yes') : chalk.yellow('no')}`);
         if (manifest.entrypoint) {
@@ -246,6 +265,12 @@ addHostOptions(
         }
         if (registryEntry?.lastStatusSummary) {
           console.log(`  Last check:  ${registryEntry.lastStatusSummary}`);
+        }
+        if (warnings.length) {
+          console.log(`  Warnings:    ${warnings.length}`);
+          for (const warning of warnings) {
+            console.log(`    - ${warning.code}: ${warning.message}`);
+          }
         }
 
         if (hasRequirements(effectiveRequires)) {

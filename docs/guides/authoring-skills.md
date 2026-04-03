@@ -2,7 +2,7 @@
 
 要让 skill 更容易被 Invoker 管理，推荐：
 
-1. 在 `skill.yaml` 中声明 `requires`
+1. 用 `SKILL.md` frontmatter 声明 `name`、`description`、`version`、`entrypoint` 与 `requires`
 2. 为 CLI 提供：
    - `versionCommand`
    - `minVersion`
@@ -11,7 +11,8 @@
 3. 为 token 和 env 提供明确的 `envVar`
 4. 为 resources 提供 `path`，必要时提供 `template`
 5. 如果依赖其它 skill，用 `requires.skills` 显式声明 `name`，必要时补 `path`
-6. 如果原始 schema 暂时不方便改，用 `invoker.skill.yaml` 做补充
+6. 只有在需要兼容 legacy 输入或补充宿主私有信息时，再使用 `invoker.skill.yaml`
+7. 如果仓库里同时保留 `SKILL.md` 与 `skill.yaml`，Invoker 会以 `SKILL.md` 为准，并给出兼容告警
 
 这样 `scan/doctor/install/fix/run` 就能形成闭环。
 

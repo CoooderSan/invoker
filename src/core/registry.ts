@@ -11,6 +11,7 @@ import type {
   ScanOptions,
   SkillDependencyRequirement,
   InstallStep,
+  RegisterSkillMetadata,
 } from '../types.js';
 
 function getRegistryFilePath(): string {
@@ -34,24 +35,36 @@ export async function saveRegistry(registry: SkillRegistry): Promise<void> {
   await writeTextFile(getRegistryFilePath(), JSON.stringify(registry, null, 2));
 }
 
-export async function registerSkillFromPath(skillPathOrName: string, options: ScanOptions = {}): Promise<InstalledSkill> {
+export async function registerSkillFromPath(
+  skillPathOrName: string,
+  options: ScanOptions = {},
+  metadata: RegisterSkillMetadata = {},
+): Promise<InstalledSkill> {
   const normalized = await scan(skillPathOrName, options);
-  const { manifest, dir, manifestPath, sidecarPath, target, targetRoot } = normalized;
+  const { manifest, dir, manifestPath, sidecarPath, primaryDocPath, primaryDocFormat, warnings, target, targetRoot } = normalized;
 
   const registry = await loadRegistry();
   const existing = registry.skills.findIndex((s) => s.path === dir || (s.name === manifest.name && s.target === target));
+
+  const previous = existing >= 0 ? registry.skills[existing] : undefined;
 
   const entry: InstalledSkill = {
     name: manifest.name,
     version: manifest.version,
     path: dir,
-    installedAt: existing >= 0 ? registry.skills[existing].installedAt : new Date().toISOString(),
+    installedAt: previous?.installedAt ?? new Date().toISOString(),
     status: 'warning',
     target,
     targetRoot,
     managedInPlace: target !== 'invoker',
+    installedFrom: metadata.installedFrom ?? previous?.installedFrom ?? 'local',
+    sourceName: metadata.sourceName ?? previous?.sourceName,
+    sourceVersion: metadata.sourceVersion ?? previous?.sourceVersion,
     manifestPath,
     sidecarPath,
+    primaryDocPath,
+    primaryDocFormat,
+    warnings,
     lastScannedAt: new Date().toISOString(),
     lastStatusSummary: 'registered, not yet checked',
   };
@@ -139,6 +152,7 @@ export async function registerSkill(name: string, version: string, path: string,
     target,
     targetRoot,
     managedInPlace: target !== 'invoker',
+    installedFrom: 'local',
   };
 
   if (existing >= 0) {
@@ -187,9 +201,11 @@ async function discoverSkillsInTarget(
           status: 'warning',
           target,
           targetRoot: root,
-          managedInPlace: target !== 'invoker',
-          manifestPath: normalized.manifestPath,
+          installedFrom: 'discovered',
           sidecarPath: normalized.sidecarPath,
+          primaryDocPath: normalized.primaryDocPath,
+          primaryDocFormat: normalized.primaryDocFormat,
+          warnings: normalized.warnings,
           lastScannedAt: new Date().toISOString(),
           lastStatusSummary: 'discovered but not checked yet',
         });
@@ -222,16 +238,27 @@ export async function listSkills(refresh = false, options: ScanOptions = {}): Pr
         const normalized = await scan(skill.path, { target: skill.target, targetRoot: skill.targetRoot });
         const report = await doctor(skill.path, { target: skill.target, targetRoot: skill.targetRoot });
         skill.status = report.overall;
+        skill.readinessStatus = report.readinessStatus;
+        skill.trustStatus = report.trustStatus;
+        skill.overallStatus = report.overallStatus;
+        skill.blockingCount = report.summary.blocking;
         skill.target = normalized.target;
         skill.targetRoot = normalized.targetRoot;
         skill.managedInPlace = normalized.target !== 'invoker';
         skill.manifestPath = normalized.manifestPath;
         skill.sidecarPath = normalized.sidecarPath;
+        skill.primaryDocPath = normalized.primaryDocPath;
+        skill.primaryDocFormat = normalized.primaryDocFormat;
+        skill.warnings = normalized.warnings;
         skill.lastScannedAt = new Date().toISOString();
         skill.lastDoctorAt = report.timestamp;
         skill.lastStatusSummary = formatDoctorSummary(report);
       } catch {
         skill.status = 'error';
+        skill.readinessStatus = 'error';
+        skill.trustStatus = 'unknown';
+        skill.overallStatus = 'error';
+        skill.blockingCount = undefined;
         skill.lastDoctorAt = new Date().toISOString();
         skill.lastStatusSummary = 'failed to inspect skill';
       }
@@ -249,6 +276,9 @@ export async function getSkillInfo(skillPathOrName: string, options: ScanOptions
   dir: string;
   manifestPath: string;
   sidecarPath?: string;
+  primaryDocPath: string;
+  primaryDocFormat: Awaited<ReturnType<typeof scan>>['primaryDocFormat'];
+  warnings: Awaited<ReturnType<typeof scan>>['warnings'];
   target: RuntimeTarget;
   targetRoot?: string;
   registered: boolean;
@@ -265,6 +295,9 @@ export async function getSkillInfo(skillPathOrName: string, options: ScanOptions
     dir: normalized.dir,
     manifestPath: normalized.manifestPath,
     sidecarPath: normalized.sidecarPath,
+    primaryDocPath: normalized.primaryDocPath,
+    primaryDocFormat: normalized.primaryDocFormat,
+    warnings: normalized.warnings,
     target: normalized.target,
     targetRoot: normalized.targetRoot,
     registered,

@@ -1,11 +1,13 @@
 # Merge Strategy
 
-Invoker 会把 `skill.yaml.requires` 与 `invoker.skill.yaml.requires` 合并为 `effectiveRequires`。
+Invoker 会先解析主文档，再把主文档中的 `requires` 与 `invoker.skill.yaml.requires` 合并为 `effectiveRequires`。
 
 ## 顶层规则
 
-- skill 主体信息：始终以 `skill.yaml` 为准
+- 主文档优先级：`SKILL.md` > `skill.yaml` / `skill.yml`
+- skill 主体信息：始终以主文档为准
 - 依赖细节：允许 sidecar 补充或覆盖
+- 当 `SKILL.md` 与 legacy yaml 并存时，yaml 仅作为兼容输入存在，并会产生告警
 
 ## 分类合并规则
 

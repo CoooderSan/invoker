@@ -74,3 +74,137 @@ test('hosts unset removes persisted override and list falls back to default root
     assert.match(stdout, new RegExp(join(dir, '.claude', 'skills').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   });
 });
+
+test('doctor --json outputs parseable trust report without log noise', async () => {
+  await withTempDir(async (dir) => {
+    await mkdir(join(dir, 'skills-check'), { recursive: true });
+    await writeFile(
+      join(dir, 'skills-check', 'skill.yaml'),
+      `name: skills-check\ndescription: checker\nversion: 1.0.0\nentrypoint: ./check.js\n`,
+      'utf8',
+    );
+    await writeFile(
+      join(dir, 'skills-check', 'check.js'),
+      `console.log(JSON.stringify({ findings: [{ name: 'unsafe-pattern', status: 'warning', message: 'Potential issue detected' }] }));\n`,
+      'utf8',
+    );
+
+    await mkdir(join(dir, 'skill'), { recursive: true });
+    await writeFile(
+      join(dir, 'skill', 'skill.yaml'),
+      `name: json-doctor-skill\ndescription: json doctor\nversion: 1.0.0\nentrypoint: ./run.sh\nrequires:\n  env:\n    - name: Base URL\n      envVar: BASE_URL\n      defaultValue: https://example.com\n`,
+      'utf8',
+    );
+    await writeFile(join(dir, 'skill', 'run.sh'), '#!/bin/sh\necho ok\n', 'utf8');
+    await writeFile(
+      join(dir, 'skill', 'invoker.skill.yaml'),
+      `trust:\n  checkers:\n    - name: skills-check\n      skill: ../skills-check\n      required: true\n`,
+      'utf8',
+    );
+
+    const { stdout, stderr } = await runCli(dir, ['doctor', join(dir, 'skill'), '--json']);
+    assert.equal(stderr, '');
+
+    const report = JSON.parse(stdout);
+    assert.equal(report.skillName, 'json-doctor-skill');
+    assert.equal(report.primaryDocFormat, 'yaml');
+    assert.ok(report.primaryDocPath.endsWith('skill.yaml'));
+    assert.equal(report.warnings[0].code, 'legacy_yaml');
+    assert.equal(report.readinessStatus, 'ok');
+    assert.equal(report.trustStatus, 'warning');
+    assert.equal(report.overall, 'ok');
+    assert.equal(report.overallStatus, 'warning');
+    assert.equal(report.trustReport.providers[0].name, 'skills-check');
+    assert.equal(report.trustReport.providers[0].status, 'warning');
+  });
+});
+
+test('info --json nests doctor trust report without log noise', async () => {
+  await withTempDir(async (dir) => {
+    await mkdir(join(dir, 'skills-check'), { recursive: true });
+    await writeFile(
+      join(dir, 'skills-check', 'skill.yaml'),
+      `name: skills-check\ndescription: checker\nversion: 1.0.0\nentrypoint: ./check.js\n`,
+      'utf8',
+    );
+    await writeFile(
+      join(dir, 'skills-check', 'check.js'),
+      `console.log(JSON.stringify({ findings: [{ name: 'unsafe-pattern', status: 'error', ruleId: 'SC001', message: 'Unsafe pattern detected' }] }));\n`,
+      'utf8',
+    );
+
+    await mkdir(join(dir, 'skill'), { recursive: true });
+    await writeFile(
+      join(dir, 'skill', 'skill.yaml'),
+      `name: json-info-skill\ndescription: json info\nversion: 1.0.0\nentrypoint: ./run.sh\nrequires:\n  env:\n    - name: Base URL\n      envVar: BASE_URL\n      defaultValue: https://example.com\n`,
+      'utf8',
+    );
+    await writeFile(join(dir, 'skill', 'run.sh'), '#!/bin/sh\necho ok\n', 'utf8');
+    await writeFile(
+      join(dir, 'skill', 'invoker.skill.yaml'),
+      `trust:\n  checkers:\n    - name: skills-check\n      skill: ../skills-check\n      required: true\n`,
+      'utf8',
+    );
+
+    const { stdout, stderr } = await runCli(dir, ['info', join(dir, 'skill'), '--json']);
+    assert.equal(stderr, '');
+
+    const info = JSON.parse(stdout);
+    assert.equal(info.manifest.name, 'json-info-skill');
+    assert.equal(info.primaryDocFormat, 'yaml');
+    assert.ok(info.primaryDocPath.endsWith('skill.yaml'));
+    assert.equal(info.warnings[0].code, 'legacy_yaml');
+    assert.equal(info.doctorReport.readinessStatus, 'ok');
+    assert.equal(info.doctorReport.trustStatus, 'error');
+    assert.equal(info.doctorReport.overallStatus, 'error');
+    assert.equal(info.doctorReport.trustReport.findings[0].provider, 'skills-check');
+    assert.equal(info.doctorReport.trustReport.findings[0].ruleId, 'SC001');
+  });
+});
+
+test('list --refresh --json returns trust summary without log noise', async () => {
+  await withTempDir(async (dir) => {
+    const skillsRoot = join(dir, '.invoker', 'skills');
+    const checkerDir = join(skillsRoot, 'skills-check');
+    const sampleDir = join(skillsRoot, 'sample-skill');
+    await mkdir(checkerDir, { recursive: true });
+    await mkdir(sampleDir, { recursive: true });
+
+    await writeFile(
+      join(checkerDir, 'skill.yaml'),
+      `name: skills-check\ndescription: checker\nversion: 1.0.0\nentrypoint: ./check.js\n`,
+      'utf8',
+    );
+    await writeFile(
+      join(checkerDir, 'check.js'),
+      `console.log(JSON.stringify({ findings: [{ name: 'unsafe-pattern', status: 'error', message: 'Unsafe pattern detected' }] }));\n`,
+      'utf8',
+    );
+
+    await writeFile(
+      join(sampleDir, 'skill.yaml'),
+      `name: sample-skill\ndescription: sample\nversion: 1.0.0\nentrypoint: ./run.sh\nrequires:\n  env:\n    - name: Base URL\n      envVar: BASE_URL\n      defaultValue: https://example.com\n`,
+      'utf8',
+    );
+    await writeFile(join(sampleDir, 'run.sh'), '#!/bin/sh\necho ok\n', 'utf8');
+    await writeFile(
+      join(sampleDir, 'invoker.skill.yaml'),
+      `trust:\n  checkers:\n    - name: skills-check\n      skill: skills-check\n      required: true\n`,
+      'utf8',
+    );
+
+    const { stdout, stderr } = await runCli(dir, ['list', '--refresh', '--json']);
+    assert.equal(stderr, '');
+
+    const skills = JSON.parse(stdout);
+    const sample = skills.find((item: { name: string }) => item.name === 'sample-skill');
+    assert.ok(sample);
+    assert.ok(sample.primaryDocPath.endsWith('skill.yaml'));
+    assert.equal(sample.primaryDocFormat, 'yaml');
+    assert.equal(sample.warnings[0].code, 'legacy_yaml');
+    assert.equal(sample.status, 'ok');
+    assert.equal(sample.readinessStatus, 'ok');
+    assert.equal(sample.trustStatus, 'error');
+    assert.equal(sample.overallStatus, 'error');
+  });
+});

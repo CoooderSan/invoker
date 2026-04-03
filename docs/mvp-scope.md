@@ -7,7 +7,8 @@
 ## 本轮包含
 
 - Invoker 作为 control plane 管理 host 上的 skill 可用性
-- 推荐在 `skill.yaml` 中使用 `requires`
+- 以 `SKILL.md` frontmatter 作为推荐主模型
+- 兼容 `skill.yaml` / `skill.yml` 作为 legacy 主文档输入
 - 支持 `invoker.skill.yaml` 作为 sidecar 补充描述文件
 - 扫描后生成统一的 normalized 依赖视图
 - `doctor` 明确区分：

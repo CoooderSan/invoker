@@ -1,6 +1,6 @@
 import { resolve } from 'node:path';
 import { fileExists, readTextFile, writeTextFile } from '../utils/fs.js';
-import type { InvokerHostConfig, RuntimeTarget } from '../types.js';
+import type { InvokerHostConfig, RemoteSourceConfig, RuntimeTarget } from '../types.js';
 
 export function getInvokerHomePath(): string {
   return resolve(process.env.HOME || process.env.USERPROFILE || '', '.invoker');
@@ -50,6 +50,27 @@ export async function getEffectiveHostRoot(host: RuntimeTarget, override?: strin
   if (override) return resolve(override);
   const roots = await getConfiguredHostRoots();
   return roots[host];
+}
+
+export async function getConfiguredSources(): Promise<RemoteSourceConfig[]> {
+  const config = await loadInvokerConfig();
+  return (config.sources ?? []).map((source) => ({
+    ...source,
+    timeoutMs: source.timeoutMs ?? 15_000,
+  }));
+}
+
+export async function getDefaultSourceName(): Promise<string | undefined> {
+  const config = await loadInvokerConfig();
+  return config.defaultSource;
+}
+
+export async function getSourceConfig(name?: string): Promise<RemoteSourceConfig | undefined> {
+  const sources = await getConfiguredSources();
+  const defaultSource = await getDefaultSourceName();
+  const resolvedName = name ?? defaultSource;
+  if (!resolvedName) return undefined;
+  return sources.find((source) => source.name === resolvedName);
 }
 
 export async function setHostRoot(host: RuntimeTarget, root: string): Promise<InvokerHostConfig> {

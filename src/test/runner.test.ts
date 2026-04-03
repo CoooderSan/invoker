@@ -105,3 +105,60 @@ test('runSkill error message includes host hint when host is specified', async (
     );
   });
 });
+
+test('runSkill points to doctor instead of install or fix when host readiness fails', async () => {
+  await withTempDir(async (dir) => {
+    const claudeRoot = join(dir, 'runtime', 'claude', 'skills');
+    const skillDir = join(claudeRoot, 'blocked-skill');
+    await mkdir(skillDir, { recursive: true });
+    await writeFile(
+      join(skillDir, 'skill.yaml'),
+      `name: blocked-skill\ndescription: blocked\nversion: 1.0.0\nentrypoint: ./run.sh\nrequires:\n  settings:\n    - key: enableAllProjectMcpServers\n      host: claude\n      expectedValue: true\n`,
+      'utf8',
+    );
+    await writeFile(join(skillDir, 'run.sh'), '#!/bin/sh\necho hello\n', 'utf8');
+
+    await assert.rejects(
+      () => runSkill('blocked-skill', [], false, { target: 'claude', targetRoot: claudeRoot }),
+      (err: Error) => {
+        assert.match(err.message, /invoker doctor blocked-skill --host claude/);
+        assert.doesNotMatch(err.message, /invoker install/i);
+        assert.doesNotMatch(err.message, /invoker fix/i);
+        return true;
+      },
+    );
+  });
+});
+
+test('runSkill proceeds when trust checker reports error', async () => {
+  await withTempDir(async (dir) => {
+    await mkdir(join(dir, 'skills-check'), { recursive: true });
+    await writeFile(
+      join(dir, 'skills-check', 'skill.yaml'),
+      `name: skills-check\ndescription: checker\nversion: 1.0.0\nentrypoint: ./check.js\n`,
+      'utf8',
+    );
+    await writeFile(
+      join(dir, 'skills-check', 'check.js'),
+      `console.log(JSON.stringify({ findings: [{ name: 'unsafe-pattern', status: 'error', message: 'Unsafe pattern detected' }] }));\n`,
+      'utf8',
+    );
+
+    await mkdir(join(dir, 'skill'));
+    await writeFile(
+      join(dir, 'skill', 'skill.yaml'),
+      `name: trust-runner\ndescription: trust runner\nversion: 1.0.0\nentrypoint: ./run.sh\nrequires:\n  env:\n    - name: Base URL\n      envVar: BASE_URL\n      defaultValue: https://example.com\n`,
+      'utf8',
+    );
+    await writeFile(join(dir, 'skill', 'run.sh'), '#!/bin/sh\necho trust-runner-ok\n', 'utf8');
+    await writeFile(
+      join(dir, 'skill', 'invoker.skill.yaml'),
+      `trust:\n  checkers:\n    - name: skills-check\n      skill: ../skills-check\n      required: true\n`,
+      'utf8',
+    );
+
+    const result = await runSkill(join(dir, 'skill'));
+    assert.equal(result.exitCode, 0);
+    assert.match(result.stdout, /trust-runner-ok/);
+  });
+});

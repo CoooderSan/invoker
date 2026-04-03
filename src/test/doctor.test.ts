@@ -46,7 +46,8 @@ test('doctor classifies missing auth/config/resource and ready skill dependency'
     assert.ok(report.checks.some((item) => item.category === 'resource' && item.status === 'error' && item.fixable));
     assert.ok(report.checks.some((item) => item.category === 'skill' && item.status === 'ok'));
     assert.equal(report.declaredProblems.length, 3);
-    assert.equal(report.observedProblems.length, 0);
+    assert.equal(report.observedProblems.length, 1);
+    assert.equal(report.observedProblems[0].name, 'legacy_yaml');
     assert.equal(report.dependencyFindings.length, 1);
     assert.ok(report.remediationActions.some((item) => item.category === 'token' && item.type === 'configure'));
     assert.ok(report.remediationActions.some((item) => item.category === 'env' && item.type === 'configure'));
@@ -122,15 +123,17 @@ test('doctor emits manifest warning when skill has no requires', async () => {
     const report = await doctor(join(dir, 'skill'));
 
     assert.equal(report.overall, 'warning');
-    const manifestCheck = report.checks.find((c) => c.category === 'manifest');
-    assert.ok(manifestCheck, 'should have a manifest check');
-    assert.equal(manifestCheck!.status, 'warning');
+    const requiresCheck = report.checks.find((c) => c.name === 'requires');
+    assert.ok(requiresCheck, 'should have a requires warning check');
+    assert.equal(requiresCheck!.status, 'warning');
     assert.equal(report.requirementsDeclared, false);
     assert.equal(report.declaredProblems.length, 0);
-    assert.equal(report.observedProblems.length, 1);
+    assert.equal(report.observedProblems.length, 2);
+    assert.ok(report.observedProblems.some((item) => item.name === 'legacy_yaml'));
+    assert.ok(report.observedProblems.some((item) => item.name === 'requires'));
     assert.equal(report.observedProblems[0].origin, 'observed');
     assert.ok(report.remediationActions.some((item) => item.category === 'manifest' && item.type === 'verify'));
-    assert.match(manifestCheck!.detail ?? '', /SKILL\.md frontmatter/);
+    assert.match(requiresCheck!.detail ?? '', /SKILL\.md frontmatter/);
   });
 });
 
@@ -187,10 +190,10 @@ test('doctor keeps trust status unknown when no checker is configured', async ()
 
     const report = await doctor(join(dir, 'skill'));
 
-    assert.equal(report.readinessStatus, 'ok');
+    assert.equal(report.readinessStatus, 'warning');
     assert.equal(report.trustStatus, 'unknown');
-    assert.equal(report.overall, 'ok');
-    assert.equal(report.overallStatus, 'unknown');
+    assert.equal(report.overall, 'warning');
+    assert.equal(report.overallStatus, 'warning');
     assert.deepEqual(report.trustReport?.findings, []);
   });
 });
@@ -224,8 +227,8 @@ test('doctor maps trust checker findings into trust report and overall status', 
 
     const report = await doctor(join(dir, 'skill'));
 
-    assert.equal(report.readinessStatus, 'ok');
-    assert.equal(report.overall, 'ok');
+    assert.equal(report.readinessStatus, 'warning');
+    assert.equal(report.overall, 'warning');
     assert.equal(report.trustStatus, 'error');
     assert.equal(report.overallStatus, 'error');
     assert.equal(report.trustReport?.findings.length, 1);
@@ -260,8 +263,8 @@ test('doctor degrades to trust warning when checker returns invalid json', async
 
     const report = await doctor(join(dir, 'skill'));
 
-    assert.equal(report.readinessStatus, 'ok');
-    assert.equal(report.overall, 'ok');
+    assert.equal(report.readinessStatus, 'warning');
+    assert.equal(report.overall, 'warning');
     assert.equal(report.trustStatus, 'warning');
     assert.equal(report.overallStatus, 'warning');
     assert.equal(report.trustReport?.findings[0].provider, 'skills-check');
@@ -352,6 +355,7 @@ version: 0.1.0
     assert.equal(report.overall, 'warning');
     assert.equal(report.warnings?.length, 1);
     assert.equal(report.warnings?.[0].code, 'duplicate_primary_doc');
-    assert.equal(report.checks.some((item) => item.name === 'duplicate_primary_doc'), false);
+    assert.equal(report.checks.some((item) => item.name === 'duplicate_primary_doc'), true);
+    assert.ok(report.observedProblems.some((item) => item.name === 'duplicate_primary_doc'));
   });
 });

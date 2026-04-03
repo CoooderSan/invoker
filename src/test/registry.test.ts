@@ -84,7 +84,7 @@ test('listSkills refresh stores trust status from trust checker', async () => {
     assert.equal(skills.length, 2);
     const sample = skills.find((item: { name: string }) => item.name === 'sample-skill');
     assert.ok(sample);
-    assert.equal(sample!.readinessStatus, 'ok');
+    assert.equal(sample!.readinessStatus, 'warning');
     assert.equal(sample!.trustStatus, 'error');
     assert.equal(sample!.overallStatus, 'error');
   });

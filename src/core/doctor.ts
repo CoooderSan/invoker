@@ -37,6 +37,22 @@ export async function doctor(skillPathOrName: string, options: ScanOptions = {})
   const checks: CheckResult[] = [];
   const requirementsDeclared = hasRequirements(effectiveRequires);
 
+  for (const warning of warnings) {
+    checks.push({
+      name: warning.code,
+      category: 'manifest',
+      status: 'warning',
+      message: warning.message,
+      detail: `Related files: ${warning.paths.join(', ')}`,
+      source: 'derived',
+      severity: 'non_blocking',
+      remediation:
+        warning.code === 'legacy_yaml'
+          ? 'Move the primary skill metadata into SKILL.md frontmatter when practical'
+          : 'Keep SKILL.md as the single source of truth and remove legacy skill.yaml/skill.yml when practical',
+    });
+  }
+
   if (!requirementsDeclared && manifest.entrypoint) {
     checks.push({
       name: 'requires',

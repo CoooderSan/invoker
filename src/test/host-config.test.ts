@@ -110,9 +110,9 @@ test('doctor --json outputs parseable trust report without log noise', async () 
     assert.equal(report.primaryDocFormat, 'yaml');
     assert.ok(report.primaryDocPath.endsWith('skill.yaml'));
     assert.equal(report.warnings[0].code, 'legacy_yaml');
-    assert.equal(report.readinessStatus, 'ok');
+    assert.equal(report.readinessStatus, 'warning');
     assert.equal(report.trustStatus, 'warning');
-    assert.equal(report.overall, 'ok');
+    assert.equal(report.overall, 'warning');
     assert.equal(report.overallStatus, 'warning');
     assert.equal(report.trustReport.providers[0].name, 'skills-check');
     assert.equal(report.trustReport.providers[0].status, 'warning');
@@ -154,7 +154,7 @@ test('info --json nests doctor trust report without log noise', async () => {
     assert.equal(info.primaryDocFormat, 'yaml');
     assert.ok(info.primaryDocPath.endsWith('skill.yaml'));
     assert.equal(info.warnings[0].code, 'legacy_yaml');
-    assert.equal(info.doctorReport.readinessStatus, 'ok');
+    assert.equal(info.doctorReport.readinessStatus, 'warning');
     assert.equal(info.doctorReport.trustStatus, 'error');
     assert.equal(info.doctorReport.overallStatus, 'error');
     assert.equal(info.doctorReport.trustReport.findings[0].provider, 'skills-check');
@@ -202,8 +202,8 @@ test('list --refresh --json returns trust summary without log noise', async () =
     assert.ok(sample.primaryDocPath.endsWith('skill.yaml'));
     assert.equal(sample.primaryDocFormat, 'yaml');
     assert.equal(sample.warnings[0].code, 'legacy_yaml');
-    assert.equal(sample.status, 'ok');
-    assert.equal(sample.readinessStatus, 'ok');
+    assert.equal(sample.status, 'warning');
+    assert.equal(sample.readinessStatus, 'warning');
     assert.equal(sample.trustStatus, 'error');
     assert.equal(sample.overallStatus, 'error');
   });

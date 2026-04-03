@@ -231,17 +231,12 @@ async function parsePrimaryDocument(path: string, format: SkillDocumentFormat): 
 
 async function parseMarkdownSkillDocument(path: string): Promise<ParsedPrimaryDocument> {
   const doc = await parseFrontmatterDocument(path);
-  const legacyManifestPath = await findLegacyManifest(dirname(path));
-  const legacyManifest = legacyManifestPath ? await parseManifest(legacyManifestPath) : undefined;
   const manifest = normalizeManifestDocument(doc);
   const trust = normalizeTrust(doc.trust);
   const notes = normalizeNotes(doc.notes);
 
   return {
-    manifest: {
-      ...manifest,
-      requires: mergeMarkdownCompatibilityRequirements(manifest.requires, legacyManifest?.requires),
-    },
+    manifest,
     sidecar: trust || notes ? { trust, notes } : undefined,
   };
 }
@@ -529,13 +524,6 @@ function mergeRequirementList<T extends RequirementMetadata>(
   }
 
   return Array.from(merged.values());
-}
-
-function mergeMarkdownCompatibilityRequirements(
-  primary?: SkillRequirements,
-  legacy?: SkillRequirements,
-): SkillRequirements | undefined {
-  return primary;
 }
 
 function mergePermissions(manifest: string[] | undefined, sidecar: string[] | undefined): string[] | undefined {

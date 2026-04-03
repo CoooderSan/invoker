@@ -1,0 +1,17 @@
+{
+  "name": "invoker",
+  "version": "0.1.1",
+  "description": "Invoker bootstrap skill package for Claude Code",
+  "author": {
+    "name": "CoooderSan",
+    "email": "opensource@cooodersan.dev"
+  },
+  "repository": "https://github.com/CoooderSan/invoker.git",
+  "license": "MIT",
+  "keywords": [
+    "invoker",
+    "skill",
+    "bootstrap",
+    "claude-code"
+  ]
+}

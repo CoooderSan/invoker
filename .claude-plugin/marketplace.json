@@ -1,0 +1,25 @@
+{
+  "name": "cooodersan",
+  "owner": {
+    "name": "CoooderSan",
+    "email": "opensource@cooodersan.dev"
+  },
+  "metadata": {
+    "description": "Official Claude Code marketplace for Invoker-powered bootstrap skills",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "invoker",
+      "source": ".",
+      "version": "0.1.1",
+      "description": "Invoker bootstrap skill package for Claude Code. Install skills first, then let the skill drive the Invoker CLI.",
+      "author": {
+        "name": "CoooderSan"
+      },
+      "keywords": ["invoker", "skill", "bootstrap", "claude-code"],
+      "category": "developer-tools",
+      "tags": ["invoker", "skill", "bootstrap", "claude"]
+    }
+  ]
+}

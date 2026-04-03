@@ -6,6 +6,19 @@ Invoker 是一个面向 AI Skills 的 control plane，用来诊断和修复 skil
 
 ### 对最终用户：先安装 skill，再由 skill 引导完成 bootstrap
 
+如果你是在 Claude Code 里使用，推荐先通过 marketplace 安装 plugin：
+
+```text
+/plugin marketplace add https://github.com/CoooderSan/invoker.git
+/plugin install invoker
+```
+
+安装后，Claude 侧会获得本仓库 `skills/` 下的 skills；当前主入口 skill 是：
+
+- `invoker-setup`
+
+之后再由 skill 驱动 Invoker CLI，而不是先要求用户手动安装 CLI。
+
 推荐入口是先在 Claude Code / Codex 安装宿主侧 skill，再在首次运行时由 wrapper skill 调用：
 
 ```bash
@@ -80,6 +93,34 @@ invoker doctor ./examples/codeup-pr-review
 - `invoker hosts list`
 - `invoker hosts set <host> <path>`
 - `invoker hosts unset <host>`
+
+如果你是在 Invoker control plane 层做远程 source 配置，仍从 `~/.invoker/config.json` 读取。现在支持两种 source：
+
+- `http_index`：先请求 metadata JSON，再根据 `downloadUrl` 下载 tarball
+- `github_archive`：直接根据 GitHub repo URL 下载源码归档，并在仓库中定位目标 skill
+
+示例：
+
+```json
+{
+  "sources": [
+    {
+      "name": "cooodersan",
+      "type": "github_archive",
+      "repoUrl": "https://github.com/CoooderSan/invoker.git",
+      "ref": "main"
+    }
+  ],
+  "defaultSource": "cooodersan"
+}
+```
+
+然后即可：
+
+```bash
+invoker install invoker-setup --host codex --source cooodersan
+invoker bootstrap invoker-setup --host claude --source cooodersan
+```
 
 ## 推荐在 `SKILL.md` 中声明 requires
 

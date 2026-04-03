@@ -1,7 +1,7 @@
 {
   "name": "@cooodersan/invoker",
   "version": "0.1.1",
-  "description": "AI Skill Package Manager — manage dependencies, environment, and availability of AI Skills",
+  "description": "AI Skill Control Plane — diagnose and remediate host readiness for AI skills",
   "type": "module",
   "bin": {
     "invoker": "./dist/bin/invoker.js"
@@ -11,7 +11,7 @@
     "README.md",
     "LICENSE",
     "skill.yaml",
-    "skills/invoker-setup"
+    "skills/invoker-setup/SKILL.md"
   ],
   "scripts": {
     "build": "tsc",

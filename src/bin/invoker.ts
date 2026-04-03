@@ -11,6 +11,7 @@ import { fix } from '../core/fixer.js';
 import { listSkills, getSkillInfo, registerSkillFromPath, unregisterSkill } from '../core/registry.js';
 import { getConfiguredHostRoots, getDefaultHostRoots, setHostRoot, unsetHostRoot } from '../core/host-config.js';
 import { runSkill } from '../core/runner.js';
+import { bootstrapSkill, ensureInvokerCli } from '../core/bootstrap.js';
 import { logger, setJsonMode } from '../utils/logger.js';
 import type { InstallOptions, RuntimeTarget, ScanOptions } from '../types.js';
 
@@ -18,8 +19,8 @@ const program = new Command();
 
 program
   .name('invoker')
-  .description('AI Skill Package Manager — manage dependencies, environment, and availability of AI Skills')
-  .version('0.1.0');
+  .description('AI Skill Control Plane — diagnose and remediate host readiness for AI skills')
+  .version('0.1.1');
 
 export function buildScanOptions(opts: { host?: string; hostRoot?: string }): ScanOptions {
   return {
@@ -337,6 +338,101 @@ addHostOptions(
         process.exit(1);
       }
     }),
+);
+
+addHostOptions(
+  program
+    .command('bootstrap <skill>')
+    .description('Bootstrap a skill-first install flow and remediate host readiness')
+    .option('--json', 'Output machine-readable JSON (for AI consumers)')
+    .option('--auto-install-invoker', 'Automatically install the invoker CLI when missing')
+    .option('--source <name>', 'Remote source name for market install fallback')
+    .option('--version <version>', 'Remote skill version for market install fallback')
+    .option('--force', 'Allow replacing existing local skill directory when installing from remote')
+    .action(
+      async (
+        skill: string,
+        opts: {
+          json?: boolean;
+          autoInstallInvoker?: boolean;
+          host?: string;
+          hostRoot?: string;
+          source?: string;
+          version?: string;
+          force?: boolean;
+        },
+      ) => {
+        if (opts.json) setJsonMode(true);
+        try {
+          const ensured = await ensureInvokerCli({ autoInstall: opts.autoInstallInvoker });
+          const scanOptions: InstallOptions = {
+            ...buildScanOptions(opts),
+            source: opts.source,
+            version: opts.version,
+            force: opts.force,
+          };
+
+          if (ensured.status === 'missing' || ensured.status === 'failed') {
+            if (opts.json) {
+              console.log(
+                JSON.stringify(
+                  {
+                    status: ensured.status,
+                    command: ensured.command,
+                    installCommand: ensured.installCommand,
+                    fallbackCommand: ensured.fallbackCommand,
+                    message: ensured.message,
+                  },
+                  null,
+                  2,
+                ),
+              );
+              process.exit(ensured.status === 'failed' ? 1 : 0);
+            }
+            logger.warn(ensured.message);
+            process.exit(ensured.status === 'failed' ? 1 : 0);
+          }
+
+          const result = await bootstrapSkill(skill, scanOptions);
+          if (opts.json) {
+            console.log(
+              JSON.stringify(
+                {
+                  status: result.doctorReport.overall === 'error' ? 'blocked' : 'ready',
+                  invokerCli: {
+                    status: ensured.status,
+                    command: ensured.command,
+                    detectedPath: ensured.detectedPath,
+                    installCommand: ensured.installCommand,
+                    fallbackCommand: ensured.fallbackCommand,
+                  },
+                  installAttempted: result.installAttempted,
+                  installPlan: result.installPlan,
+                  doctorReport: result.doctorReport,
+                },
+                null,
+                2,
+              ),
+            );
+            if (result.doctorReport.overall === 'error') process.exit(1);
+            return;
+          }
+
+          if (ensured.status === 'installed') {
+            logger.success(ensured.message);
+          }
+          printReport(result.doctorReport);
+          if (result.doctorReport.overall === 'error') process.exit(1);
+        } catch (err: unknown) {
+          if (opts.json) {
+            console.log(JSON.stringify({ error: String(err instanceof Error ? err.message : err) }));
+            process.exit(1);
+          }
+          logger.error(String(err instanceof Error ? err.message : err));
+          process.exit(1);
+        }
+      },
+    ),
 );
 
 addHostOptions(

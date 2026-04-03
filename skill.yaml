@@ -1,9 +1,9 @@
 name: invoker
-version: 0.1.0
+version: 0.1.1
 description: >
-  Host-aware AI skill dependency manager. Scans skill manifests, diagnoses
-  missing CLI tools / tokens / env vars / resources / dependent skills, and
-  outputs machine-readable JSON status for AI orchestration layers to consume.
+  Host-aware AI skill control plane. Diagnoses missing CLI tools, tokens, env
+  vars, resources, dependent skills, and host-level readiness signals, then
+  emits machine-readable remediation guidance for AI orchestration layers.
 entrypoint: ./dist/bin/invoker.js
 
 requires:

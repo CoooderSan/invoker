@@ -1,6 +1,14 @@
 # invoker install
 
-`install` 负责把 doctor 的结果转成 host 环境就绪计划。
+`install` 负责把 doctor 的结果转成 host 环境就绪计划，也承担 skill-first bootstrap 的一部分：当目标 skill 还不在当前 host root 中时，可以先把 skill materialize 到宿主目录，再继续执行后续就绪步骤。
+
+如果你需要一个更高层的统一入口，优先使用：
+
+```bash
+invoker bootstrap <skill>
+```
+
+`bootstrap` 会先确保 Invoker 自身可用，再调用现有的 `doctor/install` 主链路。
 
 ## dry-run
 

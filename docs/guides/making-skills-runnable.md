@@ -2,14 +2,22 @@
 
 推荐流程：
 
-1. `invoker scan <skill>`
-   - 看 skill 最终声明了什么依赖，以及它当前来自哪个 host
-2. `invoker doctor <skill>`
+1. 先在目标 host 安装 skill
+   - 用户入口应优先是 Claude Code / Codex 等宿主里的 skill
+2. `invoker bootstrap <skill>`
+   - 先确保 Invoker CLI 可用，再把目标 skill materialize / install / register 到当前 host，并返回 readiness 结果
+3. `invoker doctor <skill>`
    - 看这台 host 机器现在缺什么，包括 CLI、认证、配置和依赖 skill
-3. `invoker install --dry-run <skill>`
+4. `invoker install --dry-run <skill>`
    - 看自动/手动步骤
-4. `invoker install <skill>` 或 `invoker fix <skill>`
-5. `invoker run <skill>`
+5. `invoker install <skill>` 或 `invoker fix <skill>`
+6. `invoker run <skill>`
+
+如果本机尚未全局安装 `invoker`，也可以直接走一次性入口：
+
+```bash
+npx -y @cooodersan/invoker bootstrap <skill> --json
+```
 
 如果 skill 来自特定 host，建议显式带上 `--host`，这样依赖 skill 的解析也会与 host 语义保持一致。
 

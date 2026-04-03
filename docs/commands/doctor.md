@@ -71,7 +71,7 @@ Invoker 会把问题表达为三类：
 
 ### `declaredProblems[]`
 只包含非 `ok` 问题，并且这些问题可以直接归因到：
-- `skill.yaml`
+- 主文档（优先 `SKILL.md`，兼容 `skill.yaml` / `skill.yml`）
 - `invoker.skill.yaml`
 - 二者 merge 后的声明
 
@@ -163,7 +163,7 @@ checker 需要输出 JSON，最小格式：
 ```json
 {
   "skillName": "codeup-pr-review",
-  "manifestPath": "/host/skills/codeup-pr-review/skill.yaml",
+  "manifestPath": "/host/skills/codeup-pr-review/SKILL.md",
   "sidecarPath": "/host/skills/codeup-pr-review/invoker.skill.yaml",
   "timestamp": "2026-04-02T12:34:56.000Z",
   "overall": "error",

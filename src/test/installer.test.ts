@@ -284,3 +284,118 @@ version: 1.2.3
     }
   });
 });
+
+test('install bootstraps remote skill and registers local dependent skill from materialized path', async () => {
+  await withTempDir(async (dir) => {
+    const packageRoot = join(dir, 'pkg');
+    const skillDir = join(packageRoot, 'bootstrap-skill');
+    const childDir = join(skillDir, 'deps', 'child-skill');
+    const archivePath = join(dir, 'bootstrap-skill.tgz');
+    const targetRoot = join(dir, 'runtime', 'claude', 'skills');
+    await mkdir(childDir, { recursive: true });
+    await writeFile(
+      join(skillDir, 'SKILL.md'),
+      `---
+name: bootstrap-skill
+description: bootstrap
+version: 1.2.3
+requires:
+  skills:
+    - name: child-skill
+      path: ./deps/child-skill
+---
+
+# Bootstrap Skill
+`,
+      'utf8',
+    );
+    await writeFile(
+      join(childDir, 'SKILL.md'),
+      `---
+name: child-skill
+description: child
+version: 0.1.0
+---
+
+# Child Skill
+`,
+      'utf8',
+    );
+    await execFileAsync('tar', ['-czf', archivePath, '-C', packageRoot, 'bootstrap-skill']);
+    const archiveBytes = await readFile(archivePath);
+
+    let port = 0;
+    const server = createServer((req, res) => {
+      if (req.url === '/index/bootstrap-skill') {
+        res.setHeader('content-type', 'application/json');
+        res.end(
+          JSON.stringify({
+            name: 'bootstrap-skill',
+            version: '1.2.3',
+            downloadUrl: `http://127.0.0.1:${port}/packages/bootstrap-skill.tgz`,
+          }),
+        );
+        return;
+      }
+      if (req.url === '/packages/bootstrap-skill.tgz') {
+        res.setHeader('content-type', 'application/gzip');
+        res.end(archiveBytes);
+        return;
+      }
+      res.statusCode = 404;
+      res.end('not found');
+    });
+
+    await new Promise<void>((resolvePromise) => server.listen(0, '127.0.0.1', resolvePromise));
+    const address = server.address();
+    assert.ok(address && typeof address !== 'string');
+    port = address.port;
+
+    await mkdir(join(dir, '.invoker'), { recursive: true });
+    await writeFile(
+      join(dir, '.invoker', 'config.json'),
+      JSON.stringify(
+        {
+          sources: [
+            {
+              name: 'test-source',
+              type: 'http_index',
+              indexUrlTemplate: `http://127.0.0.1:${port}/index/{name}`,
+            },
+          ],
+          defaultSource: 'test-source',
+        },
+        null,
+        2,
+      ),
+      'utf8',
+    );
+
+    try {
+      const plan = await install('bootstrap-skill', { target: 'claude', targetRoot });
+
+      assert.ok(plan.steps.some((step) => step.type === 'skill' && step.operation === 'register' && step.status === 'done'));
+      const installedDoc = await readFile(join(targetRoot, 'bootstrap-skill', 'SKILL.md'), 'utf8');
+      assert.match(installedDoc, /name: bootstrap-skill/);
+      const installedChildDoc = await readFile(join(targetRoot, 'bootstrap-skill', 'deps', 'child-skill', 'SKILL.md'), 'utf8');
+      assert.match(installedChildDoc, /name: child-skill/);
+
+      const registry = await loadRegistry();
+      const parent = registry.skills.find((item) => item.name === 'bootstrap-skill');
+      const child = registry.skills.find((item) => item.name === 'child-skill');
+      assert.ok(parent);
+      assert.ok(child);
+      assert.equal(parent?.path, join(targetRoot, 'bootstrap-skill'));
+      assert.equal(parent?.installedFrom, 'remote');
+      assert.equal(parent?.sourceName, 'test-source');
+      assert.equal(parent?.sourceVersion, '1.2.3');
+      assert.equal(child?.path, join(targetRoot, 'bootstrap-skill', 'deps', 'child-skill'));
+      assert.equal(child?.target, 'claude');
+      assert.equal(child?.installedFrom, 'local');
+    } finally {
+      await new Promise<void>((resolvePromise, rejectPromise) =>
+        server.close((error) => (error ? rejectPromise(error) : resolvePromise())),
+      );
+    }
+  });
+});

@@ -2,6 +2,8 @@
 
 Invoker 解决的是：**skill 已安装，但因缺依赖、未配置、未认证而不可用**。
 
+推荐的用户入口是：先在目标 host 安装 skill，再由 wrapper skill 或 AI 调用 `invoker bootstrap <skill>` 完成 Invoker bootstrap 与 readiness remediation。
+
 ## 阅读路径
 
 ### 对 skill 作者

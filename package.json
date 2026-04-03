@@ -1,6 +1,6 @@
 {
   "name": "@cooodersan/invoker",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "AI Skill Package Manager — manage dependencies, environment, and availability of AI Skills",
   "type": "module",
   "bin": {

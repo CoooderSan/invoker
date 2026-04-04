@@ -18,6 +18,7 @@ Invoker 是一个面向 AI Skills 的 control plane，用来诊断和修复 skil
 - `invoker-setup`
 
 之后再由 skill 驱动 Invoker CLI，而不是先要求用户手动安装 CLI。
+正常情况下，skill 应优先引导安装全局 `invoker`，只有在全局安装不可行时才退回 `npx`。
 
 推荐入口是先在 Claude Code / Codex 安装宿主侧 skill，再在首次运行时由 wrapper skill 调用：
 

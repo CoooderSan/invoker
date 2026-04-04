@@ -54,19 +54,30 @@ If that succeeds, continue to Step 2.
 
 If it fails, treat this skill as the install entrypoint for the whole app.
 
+Default behavior: prefer a persistent global install. Do not jump to `npx` first.
+
+Required decision rule:
+
+1. Check `invoker --version`
+2. If missing, first try or recommend the global install
+3. Only use `npx -y @cooodersan/invoker ...` when:
+   - the user explicitly does not want a global install
+   - the environment blocks global install
+   - or the global install attempt failed
+
 Preferred persistent install:
 
 ```bash
 npm install -g @cooodersan/invoker
 ```
 
-One-shot fallback when the user does not want a global install:
+Fallback only when global install is not possible:
 
 ```bash
 npx -y @cooodersan/invoker bootstrap <skill> --json
 ```
 
-If the environment allows automatic installation, you may ask for or use the persistent install command first. Otherwise, use the one-shot fallback.
+If the environment allows automatic installation, you should ask for or use the persistent install command first.
 
 ## Step 2 — Delegate to Invoker bootstrap
 
@@ -76,7 +87,7 @@ Preferred command when `invoker` is already available:
 invoker bootstrap <skill> --json
 ```
 
-Equivalent one-shot fallback:
+Fallback only when `invoker` is still unavailable after the global-install path:
 
 ```bash
 npx -y @cooodersan/invoker bootstrap <skill> --json
@@ -116,7 +127,7 @@ Parse the JSON. Prefer these top-level fields:
 ## Step 3 — Handle bootstrap result
 
 ### If `status === "missing"`
-Invoker is not on PATH yet and automatic install did not run.
+Invoker is not on PATH yet and the preferred global-install path did not run or did not succeed.
 
 Tell the user to either:
 
@@ -124,7 +135,7 @@ Tell the user to either:
 npm install -g @cooodersan/invoker
 ```
 
-or run the one-shot bootstrap directly:
+If global install is not acceptable in the current environment, then and only then run the one-shot bootstrap directly:
 
 ```bash
 npx -y @cooodersan/invoker bootstrap <skill> --json
@@ -166,6 +177,7 @@ If trust warnings remain, include them as advisory notes.
 ## Notes
 
 - Prefer `invoker bootstrap <skill> --json` over stitching `doctor/install/fix` together yourself.
+- Prefer a globally installed `invoker` binary over `npx` for normal repeated use.
 - Use `doctorReport.remediationActions` as the source of truth for next steps.
 - Use `doctorReport.dependencyFindings` to explain dependent skill issues.
 - Use `doctorReport.warnings` to explain `SKILL.md` vs legacy yaml compatibility state.

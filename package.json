@@ -1,6 +1,6 @@
 {
   "name": "@cooodersan/invoker",
-  "version": "0.1.1",
+  "version": "0.1.3",
   "description": "AI Skill Control Plane — diagnose and remediate host readiness for AI skills",
   "type": "module",
   "bin": {
@@ -17,7 +17,8 @@
     "build": "tsc",
     "dev": "tsc --watch",
     "start": "node dist/bin/invoker.js",
-    "test": "npm run build && node --test dist/test/*.test.js"
+    "test": "npm run build && node --test dist/test/*.test.js",
+    "release:smoke": "npm run build && node ./scripts/release-smoke.cjs"
   },
   "repository": {
     "type": "git",

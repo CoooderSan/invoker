@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 
 import { Command } from 'commander';
-import { pathToFileURL } from 'node:url';
+import { realpathSync } from 'node:fs';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import chalk from 'chalk';
 import { fileExists } from '../utils/fs.js';
 import { scan, hasRequirements } from '../core/scanner.js';
@@ -12,6 +13,7 @@ import { listSkills, getSkillInfo, registerSkillFromPath, unregisterSkill } from
 import { getConfiguredHostRoots, getDefaultHostRoots, setHostRoot, unsetHostRoot } from '../core/host-config.js';
 import { runSkill } from '../core/runner.js';
 import { bootstrapSkill, ensureInvokerCli } from '../core/bootstrap.js';
+import { syncTrellisCommandsToCodex } from '../core/trellis-sync.js';
 import { logger, setJsonMode } from '../utils/logger.js';
 import type { InstallOptions, RuntimeTarget, ScanOptions } from '../types.js';
 
@@ -20,7 +22,17 @@ const program = new Command();
 program
   .name('invoker')
   .description('AI Skill Control Plane — diagnose and remediate host readiness for AI skills')
-  .version('0.1.1');
+  .version('0.1.3');
+
+export function isCliEntrypoint(argvPath = process.argv[1]): boolean {
+  if (!argvPath) return false;
+
+  try {
+    return realpathSync(argvPath) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return import.meta.url === pathToFileURL(argvPath).href;
+  }
+}
 
 export function buildScanOptions(opts: { host?: string; hostRoot?: string }): ScanOptions {
   return {
@@ -103,6 +115,44 @@ addHostOptions(
       }
     }),
 );
+
+program
+  .command('trellis-codex-sync')
+  .description('Migrate .claude Trellis commands into Codex .agents skills')
+  .option('--project-root <path>', 'Project root to resolve source and target directories from')
+  .option('--source-dir <path>', 'Override the Trellis Claude command source directory')
+  .option('--target-dir <path>', 'Override the Codex skill output directory')
+  .option('--json', 'Output machine-readable JSON (for AI consumers)')
+  .action(async (opts: { projectRoot?: string; sourceDir?: string; targetDir?: string; json?: boolean }) => {
+    if (opts.json) setJsonMode(true);
+    try {
+      const result = await syncTrellisCommandsToCodex({
+        projectRoot: opts.projectRoot,
+        sourceDir: opts.sourceDir,
+        targetDir: opts.targetDir,
+      });
+
+      if (opts.json) {
+        console.log(JSON.stringify(result, null, 2));
+        return;
+      }
+
+      logger.heading('Synced Trellis commands to Codex skills');
+      logger.info(`Source: ${result.sourceDir}`);
+      logger.info(`Target: ${result.targetDir}`);
+      logger.blank();
+      for (const skill of result.synced) {
+        logger.success(`${skill.name} -> ${skill.targetPath}`);
+      }
+    } catch (err: unknown) {
+      if (opts.json) {
+        console.log(JSON.stringify({ error: String(err instanceof Error ? err.message : err) }));
+        process.exit(1);
+      }
+      logger.error(String(err instanceof Error ? err.message : err));
+      process.exit(1);
+    }
+  });
 
 addHostOptions(
   program
@@ -512,8 +562,7 @@ program
 
 export { program };
 
-const isEntrypoint = process.argv[1] ? import.meta.url === pathToFileURL(process.argv[1]).href : false;
-if (isEntrypoint) {
+if (isCliEntrypoint()) {
   program.parse();
 }
 

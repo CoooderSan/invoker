@@ -137,7 +137,7 @@ test('doctor emits manifest warning when skill has no requires', async () => {
   });
 });
 
-test('doctor warns on optional missing token instead of erroring', async () => {
+test('doctor treats optional missing token as ready', async () => {
   await withTempDir(async (dir) => {
     await mkdir(join(dir, 'skill'));
     await writeFile(
@@ -150,8 +150,36 @@ test('doctor warns on optional missing token instead of erroring', async () => {
 
     const check = report.checks.find((c) => c.category === 'token');
     assert.ok(check);
-    assert.equal(check!.status, 'warning');
+    assert.equal(check!.status, 'ok');
     assert.equal(report.overall, 'warning');
+  });
+});
+
+test('doctor treats optional missing setting and env as ready', async () => {
+  await withTempDir(async (dir) => {
+    const previousHome = process.env.HOME;
+    process.env.HOME = dir;
+
+    try {
+      await mkdir(join(dir, 'skill'));
+      await mkdir(join(dir, '.claude'), { recursive: true });
+      await writeFile(join(dir, '.claude', 'settings.json'), JSON.stringify({}, null, 2), 'utf8');
+      await writeFile(
+        join(dir, 'skill', 'skill.yaml'),
+        `name: optional-config-skill\ndescription: optional config\nversion: 1.0.0\nrequires:\n  settings:\n    - key: governance.codeupOrganizationId\n      host: claude\n      required: false\n  env:\n    - name: Optional Cache Dir\n      envVar: OPTIONAL_CACHE_DIR\n      required: false\n`,
+        'utf8',
+      );
+
+      const report = await doctor(join(dir, 'skill'), { target: 'claude' });
+
+      assert.equal(report.checks.find((item) => item.category === 'setting')?.status, 'ok');
+      assert.equal(report.checks.find((item) => item.category === 'env')?.status, 'ok');
+      assert.equal(report.remediationActions.some((item) => item.category === 'setting'), false);
+      assert.equal(report.remediationActions.some((item) => item.category === 'env'), false);
+    } finally {
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+    }
   });
 });
 

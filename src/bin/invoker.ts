@@ -22,7 +22,7 @@ const program = new Command();
 program
   .name('invoker')
   .description('AI Skill Control Plane — diagnose and remediate host readiness for AI skills')
-  .version('0.1.4');
+  .version('0.1.5');
 
 export function isCliEntrypoint(argvPath = process.argv[1]): boolean {
   if (!argvPath) return false;

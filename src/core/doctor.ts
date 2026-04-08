@@ -411,6 +411,19 @@ async function checkSetting(
   }
 
   if (!(await fileExists(settingsPath))) {
+    if (!required) {
+      return {
+        name: req.key,
+        category: 'setting',
+        status: 'ok',
+        message: `Optional host settings file for ${host} is not present at ${settingsPath}; "${req.key}" will be treated as unset`,
+        detail: req.description,
+        source: req.source,
+        severity: 'non_blocking',
+        required,
+        expectedValue: req.expectedValue ?? req.key,
+      };
+    }
     return {
       name: req.key,
       category: 'setting',
@@ -429,6 +442,19 @@ async function checkSetting(
   const settings = await readJsonObject(settingsPath);
   const value = readPath(settings, req.key);
   if (value === undefined) {
+    if (!required) {
+      return {
+        name: req.key,
+        category: 'setting',
+        status: 'ok',
+        message: `Optional host setting "${req.key}" is not configured for ${host}`,
+        detail: req.description,
+        source: req.source,
+        severity: 'non_blocking',
+        required,
+        expectedValue: req.expectedValue ?? req.key,
+      };
+    }
     return {
       name: req.key,
       category: 'setting',
@@ -524,6 +550,19 @@ function checkToken(req: TokenRequirement): CheckResult {
   const required = req.required !== false;
 
   if (!value) {
+    if (!required) {
+      return {
+        name: req.name,
+        category: 'token',
+        status: 'ok',
+        message: `Optional authentication for "${req.name}" is not configured (env: ${envVar})`,
+        detail: req.description,
+        source: req.source,
+        severity: 'non_blocking',
+        required,
+        expectedValue: envVar,
+      };
+    }
     return {
       name: req.name,
       category: 'token',
@@ -557,6 +596,19 @@ function checkEnv(req: EnvRequirement): CheckResult {
   const required = req.required !== false;
 
   if (!value && !req.defaultValue) {
+    if (!required) {
+      return {
+        name: req.name,
+        category: 'env',
+        status: 'ok',
+        message: `Optional configuration "${req.envVar}" is not set`,
+        detail: req.description,
+        source: req.source,
+        severity: 'non_blocking',
+        required,
+        expectedValue: req.envVar,
+      };
+    }
     return {
       name: req.name,
       category: 'env',

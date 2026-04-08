@@ -1,6 +1,6 @@
 {
   "name": "@cooodersan/invoker",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "AI Skill Control Plane — diagnose and remediate host readiness for AI skills",
   "type": "module",
   "bin": {

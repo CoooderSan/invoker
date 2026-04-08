@@ -1,6 +1,6 @@
 ---
 name: invoker-setup
-version: 0.1.3
+version: 0.1.4
 description: >
   Bootstrap a skill-first install flow with the Invoker control plane. Use this
   when the user wants to set up, bootstrap, install, or verify a skill on the

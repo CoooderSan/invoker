@@ -12,9 +12,9 @@ export type ReadinessStatus = CheckStatus;
 export type TrustStatus = CheckStatus | 'unknown';
 export type OverallStatus = CheckStatus | 'unknown';
 export type RuntimeTarget = 'invoker' | 'claude' | 'codex' | 'unknown';
-export type SkillResolutionSource = 'direct_path' | 'cwd' | 'registry' | 'target_dir';
+export type SkillResolutionSource = 'direct_path' | 'cwd' | 'registry' | 'target_dir' | 'plugin_cache';
 export type SkillDocumentFormat = 'markdown' | 'yaml';
-export type RemoteSourceType = 'http_index';
+export type RemoteSourceType = 'http_index' | 'github_archive';
 
 export interface RequirementMetadata {
   source?: RequirementSource;
@@ -98,7 +98,9 @@ export interface RegisterSkillMetadata {
 export interface RemoteSourceConfig {
   name: string;
   type: RemoteSourceType;
-  indexUrlTemplate: string;
+  indexUrlTemplate?: string;
+  repoUrl?: string;
+  ref?: string;
   tokenEnv?: string;
   timeoutMs?: number;
 }

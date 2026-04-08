@@ -1,5 +1,6 @@
 import { parse as parseYaml } from 'yaml';
 import { resolve, dirname, relative, basename } from 'node:path';
+import { readdir } from 'node:fs/promises';
 import { readTextFile, fileExists } from '../utils/fs.js';
 import { logger } from '../utils/logger.js';
 import { getDefaultHostRoots, getEffectiveHostRoot, getConfiguredHostRoots } from './host-config.js';
@@ -113,6 +114,91 @@ async function findLegacyManifest(skillDir: string): Promise<string | null> {
   return null;
 }
 
+async function listDirectories(path: string): Promise<string[]> {
+  try {
+    const entries = await readdir(path, { withFileTypes: true });
+    return entries.filter((entry) => entry.isDirectory()).map((entry) => resolve(path, entry.name));
+  } catch {
+    return [];
+  }
+}
+
+async function getClaudeInstalledPluginRoots(): Promise<string[]> {
+  const home = getHomeDir();
+  if (!home) return [];
+
+  const installedPluginsPath = resolve(home, '.claude', 'plugins', 'installed_plugins.json');
+  if (await fileExists(installedPluginsPath)) {
+    try {
+      const raw = await readTextFile(installedPluginsPath);
+      const parsed = JSON.parse(raw) as { plugins?: Record<string, Array<{ installPath?: string }>> };
+      const roots = new Set<string>();
+
+      for (const installs of Object.values(parsed.plugins ?? {})) {
+        for (const install of installs ?? []) {
+          if (install?.installPath) roots.add(resolve(install.installPath));
+        }
+      }
+
+      if (roots.size > 0) return Array.from(roots);
+    } catch {
+      logger.debug(`Failed to parse Claude installed plugins index at ${installedPluginsPath}; falling back to cache scan.`);
+    }
+  }
+
+  const cacheRoot = resolve(home, '.claude', 'plugins', 'cache');
+  const marketplaceDirs = await listDirectories(cacheRoot);
+  const pluginRoots: string[] = [];
+  for (const marketplaceDir of marketplaceDirs) {
+    for (const pluginDir of await listDirectories(marketplaceDir)) {
+      pluginRoots.push(...(await listDirectories(pluginDir)));
+    }
+  }
+  return pluginRoots;
+}
+
+async function getCodexInstalledPluginRoots(): Promise<string[]> {
+  const home = getHomeDir();
+  if (!home) return [];
+
+  const candidateRoots = [
+    resolve(home, '.codex', '.tmp', 'plugins', 'plugins'),
+    resolve(home, '.codex', 'plugins', 'cache'),
+  ];
+  const pluginRoots: string[] = [];
+  for (const candidateRoot of candidateRoots) {
+    pluginRoots.push(...(await listDirectories(candidateRoot)));
+  }
+  return pluginRoots;
+}
+
+async function getInstalledPluginRoots(target: RuntimeTarget): Promise<string[]> {
+  if (target === 'claude') return getClaudeInstalledPluginRoots();
+  if (target === 'codex') return getCodexInstalledPluginRoots();
+  return [];
+}
+
+async function resolveInstalledPluginSkill(skillName: string, target: RuntimeTarget): Promise<ResolvedSkillLocation | null> {
+  const pluginRoots = await getInstalledPluginRoots(target);
+  for (const pluginRoot of pluginRoots) {
+    const skillDir = resolve(pluginRoot, 'skills', skillName);
+    const primary = await findPrimaryDocInDirectory(skillDir);
+    if (!primary) continue;
+
+    return {
+      manifestPath: primary.path,
+      primaryDocPath: primary.path,
+      primaryDocFormat: primary.format,
+      skillDir,
+      source: 'plugin_cache',
+      target,
+      targetRoot: pluginRoot,
+    };
+  }
+
+  return null;
+}
+
 export async function resolveSkillLocation(skillPathOrName: string, options: ScanOptions = {}): Promise<ResolvedSkillLocation | null> {
   if (isDirectSkillDocumentPath(skillPathOrName)) {
     const abs = resolve(skillPathOrName);
@@ -176,6 +262,13 @@ export async function resolveSkillLocation(skillPathOrName: string, options: Sca
         target,
         targetRoot: root,
       };
+    }
+  }
+
+  if (!options.targetRoot) {
+    for (const target of targets) {
+      const resolved = await resolveInstalledPluginSkill(skillPathOrName, target);
+      if (resolved) return resolved;
     }
   }
 

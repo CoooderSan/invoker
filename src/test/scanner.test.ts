@@ -421,6 +421,71 @@ test('scan falls back to configured host root when targetRoot is not provided', 
   });
 });
 
+test('scan resolves Claude plugin-installed skill by name', async () => {
+  await withTempDir(async (dir) => {
+    const previousHome = process.env.HOME;
+    process.env.HOME = dir;
+
+    try {
+      const installPath = join(dir, '.claude', 'plugins', 'cache', 'cooodersan', 'invoker', '0.1.3');
+      const skillDir = join(installPath, 'skills', 'invoker-setup');
+      await mkdir(skillDir, { recursive: true });
+      await writeFile(join(skillDir, 'SKILL.md'), sampleSkillMd.replace('sample-skill', 'invoker-setup'), 'utf8');
+      await mkdir(join(dir, '.claude', 'plugins'), { recursive: true });
+      await writeFile(
+        join(dir, '.claude', 'plugins', 'installed_plugins.json'),
+        JSON.stringify({
+          version: 2,
+          plugins: {
+            'invoker@cooodersan': [
+              {
+                scope: 'user',
+                installPath,
+                version: '0.1.3',
+              },
+            ],
+          },
+        }, null, 2),
+        'utf8',
+      );
+
+      const normalized = await scan('invoker-setup', { target: 'claude' });
+      assert.equal(normalized.manifest.name, 'invoker-setup');
+      assert.equal(normalized.target, 'claude');
+      assert.equal(normalized.resolutionSource, 'plugin_cache');
+      assert.equal(normalized.location.skillDir, skillDir);
+      assert.equal(normalized.targetRoot, installPath);
+    } finally {
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+    }
+  });
+});
+
+test('scan resolves Codex plugin-installed skill by name', async () => {
+  await withTempDir(async (dir) => {
+    const previousHome = process.env.HOME;
+    process.env.HOME = dir;
+
+    try {
+      const pluginRoot = join(dir, '.codex', '.tmp', 'plugins', 'plugins', 'invoker');
+      const skillDir = join(pluginRoot, 'skills', 'invoker-setup');
+      await mkdir(skillDir, { recursive: true });
+      await writeFile(join(skillDir, 'SKILL.md'), sampleSkillMd.replace('sample-skill', 'invoker-setup'), 'utf8');
+
+      const normalized = await scan('invoker-setup', { target: 'codex' });
+      assert.equal(normalized.manifest.name, 'invoker-setup');
+      assert.equal(normalized.target, 'codex');
+      assert.equal(normalized.resolutionSource, 'plugin_cache');
+      assert.equal(normalized.location.skillDir, skillDir);
+      assert.equal(normalized.targetRoot, pluginRoot);
+    } finally {
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+    }
+  });
+});
+
 test('scan merges host-aware requirements and preserves merged metadata', async () => {
   await withTempDir(async (dir) => {
     await mkdir(join(dir, 'skill'));

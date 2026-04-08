@@ -4,6 +4,7 @@ const { execFileSync } = require('node:child_process');
 const { mkdtempSync, rmSync, symlinkSync } = require('node:fs');
 const { tmpdir } = require('node:os');
 const { join, resolve } = require('node:path');
+const pkg = require('../package.json');
 
 function run(command, args, options = {}) {
   return execFileSync(command, args, {
@@ -22,8 +23,8 @@ try {
   symlinkSync(cliPath, linkPath);
 
   const version = run('node', [linkPath, '--version']).trim();
-  if (version !== '0.1.3') {
-    throw new Error(`Expected invoker --version to output 0.1.3, got ${JSON.stringify(version)}`);
+  if (version !== pkg.version) {
+    throw new Error(`Expected invoker --version to output ${pkg.version}, got ${JSON.stringify(version)}`);
   }
 
   const listOutput = run('node', [linkPath, 'list', '--json'], {
